@@ -1501,8 +1501,6 @@ if gesture_mode or lip_mode:
                     if st.button("🎬 Enter Simulation Mode", key="enter_simulation", help="Use simulated camera for testing functionality"):
                         st.session_state.camera_simulation = True
                         st.rerun()
-                            st.session_state['gesture_detected'] = gesture_result
-                            st.session_state.gesture_count += 1
         
         except Exception as e:
             error_msg = str(e)
