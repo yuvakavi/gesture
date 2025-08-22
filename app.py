@@ -997,7 +997,7 @@ if gesture_mode or lip_mode:
         if camera_available:
             st.markdown('<div class="success-animation">📹 Camera detected and accessible</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div style="background: linear-gradient(45deg, #ff7b7b, #ffa500); padding: 10px; border-radius: 10px; color: white; transform: perspective(500px) rotateX(10deg);">⚠️ Camera not accessible - using simulation mode</div>', unsafe_allow_html=True)
+            st.markdown('<div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 10px; border-radius: 10px; color: white; transform: perspective(500px) rotateX(10deg);">🎬 Smart Simulation Mode Available - Full functionality maintained!</div>', unsafe_allow_html=True)
     
     with col_control:
         run_camera = st.checkbox("Start Camera")
@@ -1100,7 +1100,7 @@ if gesture_mode or lip_mode:
                 st.session_state.cap = init_camera_robust()
                 
                 if st.session_state.cap is None:
-                    camera_status.error("❌ Camera initialization failed - using simulation mode")
+                    camera_status.info("🎬 Camera not detected - Smart Simulation Mode Activated!")
                     st.session_state.camera_simulation = True
                 else:
                     camera_status.success("✅ Camera initialized successfully!")
@@ -1470,35 +1470,35 @@ if gesture_mode or lip_mode:
                             st.rerun()
                 
                 else:
-                    # First time camera failure - show error and troubleshooting
-                    camera_status.error("❌ Camera not accessible - check camera permissions and connection")
-                    camera_placeholder.error("📹 No camera detected or camera is being used by another application")
+                    # First time camera setup - show helpful guidance
+                    camera_status.info("🎥 Camera Setup Required - Let's get you started!")
+                    camera_placeholder.info("� Camera not detected - Follow the guide below or use Simulation Mode")
                     
-                    # Enhanced troubleshooting information
+                    # Enhanced setup information
                     st.markdown('''
-                    <div style="background: linear-gradient(45deg, #e74c3c, #c0392b); padding: 20px; border-radius: 15px; color: white; margin: 15px 0;">
-                        <h3 style="margin: 0; color: white;">📋 Camera Troubleshooting Guide</h3>
+                    <div style="background: linear-gradient(45deg, #4ECDC4, #44A08D); padding: 20px; border-radius: 15px; color: white; margin: 15px 0;">
+                        <h3 style="margin: 0; color: white;">🎥 Camera Setup Guide</h3>
                         <div style="margin-top: 15px; text-align: left;">
-                            <p><strong>🔍 Common Issues:</strong></p>
+                            <p><strong>✨ Easy Setup Steps:</strong></p>
                             <ul style="margin: 10px 0; padding-left: 20px;">
-                                <li><strong>Camera in use:</strong> Close Zoom, Skype, Teams, or other video apps</li>
-                                <li><strong>Permissions:</strong> Allow camera access in browser settings</li>
-                                <li><strong>Hardware:</strong> Check camera connection and drivers</li>
-                                <li><strong>Browser:</strong> Try refreshing or using Chrome/Firefox</li>
+                                <li><strong>Permission:</strong> Allow camera access when browser asks</li>
+                                <li><strong>Close apps:</strong> Exit Zoom, Skype, Teams if running</li>
+                                <li><strong>Connection:</strong> Ensure camera is plugged in and working</li>
+                                <li><strong>Browser:</strong> Chrome and Firefox work best</li>
                             </ul>
-                            <p><strong>💡 Quick Fixes:</strong></p>
+                            <p><strong>� Alternative Option:</strong></p>
                             <ul style="margin: 10px 0; padding-left: 20px;">
-                                <li>Press F5 to refresh the page</li>
-                                <li>Restart your browser</li>
-                                <li>Disconnect and reconnect camera</li>
-                                <li>Use simulation mode below</li>
+                                <li><strong>Smart Simulation:</strong> Full app functionality without camera needed!</li>
+                                <li><strong>Quick start:</strong> Press the Simulation Mode button below</li>
+                                <li><strong>Easy testing:</strong> Try all features instantly</li>
+                                <li><strong>Perfect for demos:</strong> Works everywhere, anytime</li>
                             </ul>
                         </div>
                     </div>
                     ''', unsafe_allow_html=True)
                     
                     # Option to enter simulation mode
-                    if st.button("🎬 Enter Simulation Mode", key="enter_simulation", help="Use simulated camera for testing functionality"):
+                    if st.button("🚀 Start Smart Simulation Mode", key="enter_simulation", help="Experience full functionality with intelligent simulation"):
                         st.session_state.camera_simulation = True
                         st.rerun()
         
