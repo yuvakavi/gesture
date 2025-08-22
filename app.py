@@ -425,45 +425,54 @@ def text_to_speech(text, language='en'):
     return text_to_speech_with_method(text, language, method, rate, volume)
 
 def check_camera_access():
-    """Enhanced camera access check with multiple camera support"""
+    """Enhanced camera access check with multiple camera support and better error handling"""
     try:
-        # Try multiple camera indices (0, 1, 2) to find available camera
-        for camera_index in [0, 1, 2]:
+        # Try multiple camera indices and backends
+        camera_configs = [
+            (0, cv2.CAP_DSHOW),   # DirectShow (Windows)
+            (0, cv2.CAP_MSMF),    # Microsoft Media Foundation
+            (0, cv2.CAP_V4L2),    # Video4Linux2 (Linux)
+            (0, cv2.CAP_ANY),     # Any available backend
+            (1, cv2.CAP_DSHOW),   # Try camera index 1
+            (1, cv2.CAP_ANY),
+            (2, cv2.CAP_ANY),     # Try camera index 2
+        ]
+        
+        for camera_index, backend in camera_configs:
             try:
-                cap = cv2.VideoCapture(camera_index)
+                # Initialize camera with specific backend
+                cap = cv2.VideoCapture(camera_index, backend)
                 
                 # Set camera properties for better compatibility
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 cap.set(cv2.CAP_PROP_FPS, 30)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to avoid delays
                 
                 if cap.isOpened():
-                    # Try to read a frame
-                    ret, frame = cap.read()
-                    if ret and frame is not None:
-                        cap.release()
-                        return True
-                    
-                cap.release()
+                    # Try to read multiple frames to ensure camera is working
+                    for attempt in range(3):
+                        ret, frame = cap.read()
+                        if ret and frame is not None and frame.size > 0:
+                            height, width = frame.shape[:2]
+                            if height > 0 and width > 0:
+                                cap.release()
+                                print(f"✅ Camera {camera_index} with backend {backend} working!")
+                                return True
+                        time.sleep(0.1)  # Small delay between attempts
                 
-                # Try other backends
-                cap = cv2.VideoCapture(camera_index, cv2.CAP_MSMF)
-                if cap.isOpened():
-                    ret, frame = cap.read()
-                    if ret and frame is not None:
-                        cap.release()
-                        return True
                 cap.release()
                 
             except Exception as camera_error:
-                print(f"Camera {camera_index} failed: {camera_error}")
+                print(f"❌ Camera {camera_index} with backend {backend} failed: {camera_error}")
                 continue
         
+        print("❌ No accessible cameras found")
         return False
         
     except Exception as e:
-        st.error(f"Camera initialization error: {e}")
-        return None
+        print(f"Camera check error: {e}")
+        return False
 
 def translate_text(text, target_language):
     """Translate text to target language"""
@@ -1031,33 +1040,71 @@ if gesture_mode or lip_mode:
                 current_count = st.session_state.get('lip_count', 0)
                 st.metric("👄 Lip Readings", current_count)
         
-        # Enhanced Camera feed with better error handling
+        # Enhanced Camera feed with robust initialization
         st.markdown('<div class="camera-frame">', unsafe_allow_html=True)
         camera_placeholder = st.empty()
         camera_status = st.empty()
         
         # Try to initialize camera with enhanced retry mechanism
+        def init_camera_robust():
+            """Robust camera initialization with multiple backends and error handling"""
+            camera_configs = [
+                (0, cv2.CAP_DSHOW, "DirectShow"),
+                (0, cv2.CAP_MSMF, "Media Foundation"),
+                (0, cv2.CAP_ANY, "Any Backend"),
+                (1, cv2.CAP_DSHOW, "DirectShow (Camera 1)"),
+                (1, cv2.CAP_ANY, "Any Backend (Camera 1)"),
+                (2, cv2.CAP_ANY, "Any Backend (Camera 2)"),
+            ]
+            
+            for camera_index, backend, backend_name in camera_configs:
+                try:
+                    cap = cv2.VideoCapture(camera_index, backend)
+                    
+                    # Enhanced camera properties
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cap.set(cv2.CAP_PROP_FPS, 30)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+                    
+                    if cap.isOpened():
+                        # Test camera with multiple frame reads
+                        for test_attempt in range(5):
+                            ret, frame = cap.read()
+                            if ret and frame is not None and frame.size > 0:
+                                h, w = frame.shape[:2]
+                                if h > 0 and w > 0:
+                                    print(f"✅ Camera initialized: {backend_name}")
+                                    return cap
+                            time.sleep(0.1)
+                    
+                    cap.release()
+                    
+                except Exception as e:
+                    print(f"❌ Failed {backend_name}: {e}")
+                    if 'cap' in locals():
+                        try:
+                            cap.release()
+                        except:
+                            pass
+                    continue
+            
+            return None
+        
         try:
             if 'cap' not in st.session_state or st.session_state.cap is None or not st.session_state.cap.isOpened():
-                # Initialize camera with multiple attempts
-                cap = None
-                for camera_index in [0, 1, 2]:
-                    try:
-                        cap = cv2.VideoCapture(camera_index)
-                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                        cap.set(cv2.CAP_PROP_FPS, 30)
-                        
-                        if cap.isOpened():
-                            ret, frame = cap.read()
-                            if ret and frame is not None:
-                                st.session_state.cap = cap
-                                break
-                        cap.release()
-                    except Exception as e:
-                        if cap:
-                            cap.release()
-                        continue
+                with camera_status.container():
+                    st.info("🔄 Initializing camera...")
+                
+                st.session_state.cap = init_camera_robust()
+                
+                if st.session_state.cap is None:
+                    camera_status.error("❌ Camera initialization failed - using simulation mode")
+                    st.session_state.camera_simulation = True
+                else:
+                    camera_status.success("✅ Camera initialized successfully!")
+                    st.session_state.camera_simulation = False
                 
                 if 'cap' not in st.session_state:
                     st.session_state.cap = None
@@ -1330,27 +1377,130 @@ if gesture_mode or lip_mode:
                         cap.release()
                     # Camera retry logic removed
             else:
-                # Camera not available
-                camera_status.error("❌ Camera not accessible - check camera permissions and connection")
-                camera_placeholder.error("📹 No camera detected or camera is being used by another application")
+                # Camera not available - Enhanced simulation mode
+                if st.session_state.get('camera_simulation', False):
+                    # Simulation mode with animated placeholder
+                    st.markdown('''
+                    <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 20px; border-radius: 15px; color: white; text-align: center; margin: 10px 0;">
+                        <h3 style="margin: 0;">🎬 Simulation Mode Active</h3>
+                        <p style="margin: 10px 0;">Camera not available - using intelligent simulation</p>
+                        <div style="font-size: 3rem; animation: bounce 2s infinite;">📷 🎭 🤖</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    # Create animated simulation frame
+                    simulation_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                    # Add gradient background
+                    for i in range(480):
+                        for j in range(640):
+                            simulation_frame[i, j] = [
+                                int(100 + 50 * np.sin(i * 0.01 + time.time())),
+                                int(150 + 50 * np.cos(j * 0.01 + time.time())), 
+                                int(200 + 50 * np.sin((i+j) * 0.01 + time.time()))
+                            ]
+                    
+                    # Add animated text
+                    cv2.putText(simulation_frame, "SIMULATION MODE", (150, 240), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+                    cv2.putText(simulation_frame, "Camera Simulation Active", (170, 280), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                    
+                    camera_placeholder.image(simulation_frame, channels="RGB", use_container_width=True)
+                    
+                    # Provide simulation controls
+                    sim_col1, sim_col2, sim_col3 = st.columns(3)
+                    
+                    with sim_col1:
+                        if st.button("🎭 Simulate Gesture", key="sim_gesture"):
+                            with st.spinner("Simulating gesture recognition..."):
+                                time.sleep(1)  # Simulate processing time
+                                simulated_landmarks = []
+                                gesture_type = np.random.choice(['open_hand', 'fist', 'peace', 'thumbs_up', 'point'])
+                                
+                                # Generate gesture-specific landmarks
+                                for i in range(21):
+                                    if gesture_type == 'open_hand':
+                                        x, y = 0.5 + (i % 5) * 0.08, 0.5 + (i // 5) * 0.08
+                                    elif gesture_type == 'fist':
+                                        x, y = 0.5 + np.random.normal(0, 0.02), 0.5 + np.random.normal(0, 0.02)
+                                    elif gesture_type == 'peace':
+                                        x, y = 0.5 + (0.1 if i in [8, 12] else 0.02), 0.5 + np.random.normal(0, 0.02)
+                                    elif gesture_type == 'thumbs_up':
+                                        x, y = 0.5 + (0.1 if i == 4 else 0.02), 0.4 + np.random.normal(0, 0.02)
+                                    else:  # point
+                                        x, y = 0.5 + (0.15 if i == 8 else 0.02), 0.5 + np.random.normal(0, 0.02)
+                                    
+                                    z = np.random.uniform(-0.05, 0.05)
+                                    simulated_landmarks.extend([x, y, z])
+                                
+                                gesture_result = process_gesture_recognition(np.array(simulated_landmarks), target_lang_code)
+                                if gesture_result:
+                                    st.session_state['gesture_detected'] = gesture_result
+                                    st.session_state.gesture_count = st.session_state.get('gesture_count', 0) + 1
+                                    st.success(f"✅ Simulated Gesture: {gesture_result['original']} → {gesture_result['translated']}")
+                                    
+                                    if enable_tts:
+                                        text_to_speech_with_method(gesture_result['translated'], target_lang_code, "Windows SAPI", 150, 1.0)
+                    
+                    with sim_col2:
+                        if st.button("👄 Simulate Lip Reading", key="sim_lip"):
+                            with st.spinner("Simulating lip movement analysis..."):
+                                time.sleep(1)
+                                detected_words = ['hello', 'yes', 'no', 'please', 'thank you', 'water', 'help']
+                                detected_word = np.random.choice(detected_words)
+                                translated_lip = translate_text(detected_word, target_lang_code)
+                                
+                                st.session_state['lip_detected'] = {
+                                    'original': detected_word,
+                                    'translated': translated_lip
+                                }
+                                st.session_state.lip_count = st.session_state.get('lip_count', 0) + 1
+                                st.success(f"✅ Simulated Lip Reading: {detected_word} → {translated_lip}")
+                                
+                                if enable_tts:
+                                    text_to_speech_with_method(translated_lip, target_lang_code, "Windows SAPI", 150, 1.0)
+                    
+                    with sim_col3:
+                        if st.button("🔄 Try Camera Again", key="retry_camera"):
+                            st.session_state.camera_simulation = False
+                            if 'cap' in st.session_state:
+                                if st.session_state.cap:
+                                    st.session_state.cap.release()
+                                st.session_state.cap = None
+                            st.rerun()
                 
-                # Provide troubleshooting information
-                st.markdown('''
-                **📋 Camera Troubleshooting Steps:**
-                1. **Check camera connection** - Ensure camera is properly connected
-                2. **Close other apps** - Close Zoom, Skype, or other apps using the camera
-                3. **Check permissions** - Allow camera access in Windows Settings
-                4. **Try different camera** - If you have multiple cameras, try switching
-                5. **Restart browser** - Refresh the page or restart your browser
-                6. **Use manual controls** - Use the "Manual Gesture Test" button below
-                ''')
-                
-                # Always provide manual fallback option
-                if gesture_mode and st.button("🎭 Try Manual Gesture", key="manual_fallback"):
-                    with st.spinner("Processing gesture..."):
-                        simulated_landmarks = np.random.rand(21, 3).flatten()
-                        gesture_result = process_gesture_recognition(simulated_landmarks, target_lang_code)
-                        if gesture_result:
+                else:
+                    # First time camera failure - show error and troubleshooting
+                    camera_status.error("❌ Camera not accessible - check camera permissions and connection")
+                    camera_placeholder.error("📹 No camera detected or camera is being used by another application")
+                    
+                    # Enhanced troubleshooting information
+                    st.markdown('''
+                    <div style="background: linear-gradient(45deg, #e74c3c, #c0392b); padding: 20px; border-radius: 15px; color: white; margin: 15px 0;">
+                        <h3 style="margin: 0; color: white;">📋 Camera Troubleshooting Guide</h3>
+                        <div style="margin-top: 15px; text-align: left;">
+                            <p><strong>🔍 Common Issues:</strong></p>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li><strong>Camera in use:</strong> Close Zoom, Skype, Teams, or other video apps</li>
+                                <li><strong>Permissions:</strong> Allow camera access in browser settings</li>
+                                <li><strong>Hardware:</strong> Check camera connection and drivers</li>
+                                <li><strong>Browser:</strong> Try refreshing or using Chrome/Firefox</li>
+                            </ul>
+                            <p><strong>💡 Quick Fixes:</strong></p>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li>Press F5 to refresh the page</li>
+                                <li>Restart your browser</li>
+                                <li>Disconnect and reconnect camera</li>
+                                <li>Use simulation mode below</li>
+                            </ul>
+                        </div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    # Option to enter simulation mode
+                    if st.button("🎬 Enter Simulation Mode", key="enter_simulation", help="Use simulated camera for testing functionality"):
+                        st.session_state.camera_simulation = True
+                        st.rerun()
                             st.session_state['gesture_detected'] = gesture_result
                             st.session_state.gesture_count += 1
         
