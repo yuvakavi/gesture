@@ -1002,6 +1002,31 @@ if gesture_mode or lip_mode:
     with col_control:
         run_camera = st.checkbox("Start Camera")
     
+    # Camera Mode Control Section
+    if run_camera:
+        st.markdown("---")
+        mode_col1, mode_col2, mode_col3 = st.columns(3)
+        
+        with mode_col1:
+            current_mode = "🎬 Simulation" if st.session_state.get('camera_simulation', False) else "📹 Real Camera"
+            st.markdown(f"**Current Mode:** {current_mode}")
+        
+        with mode_col2:
+            if st.button("📹 Switch to Real Camera", key="switch_real", disabled=not st.session_state.get('camera_simulation', False)):
+                st.session_state.camera_simulation = False
+                if 'cap' in st.session_state and st.session_state.cap:
+                    st.session_state.cap.release()
+                st.session_state.cap = None
+                st.rerun()
+        
+        with mode_col3:
+            if st.button("🎬 Switch to Simulation", key="switch_sim", disabled=st.session_state.get('camera_simulation', False)):
+                st.session_state.camera_simulation = True
+                if 'cap' in st.session_state and st.session_state.cap:
+                    st.session_state.cap.release()
+                    st.session_state.cap = None
+                st.rerun()
+    
     if run_camera:
         # Initialize session state for tracking
         if 'camera_active' not in st.session_state:
@@ -1093,15 +1118,26 @@ if gesture_mode or lip_mode:
             return None
         
         try:
-            if 'cap' not in st.session_state or st.session_state.cap is None or not st.session_state.cap.isOpened():
+            # Check if user manually chose simulation mode
+            if st.session_state.get('camera_simulation', False):
                 with camera_status.container():
-                    st.info("🔄 Initializing camera...")
+                    st.success("🎬 Smart Simulation Mode Active")
+                st.session_state.cap = None
+            elif 'cap' not in st.session_state or st.session_state.cap is None or not st.session_state.cap.isOpened():
+                with camera_status.container():
+                    st.info("🔄 Initializing real camera...")
                 
                 st.session_state.cap = init_camera_robust()
                 
                 if st.session_state.cap is None:
-                    camera_status.info("🎬 Camera not detected - Smart Simulation Mode Activated!")
-                    st.session_state.camera_simulation = True
+                    camera_status.warning("📹 Real camera not available - Would you like to use Simulation Mode?")
+                    # Don't automatically switch - let user choose
+                    if st.button("🎬 Yes, Use Simulation Mode", key="auto_sim_switch"):
+                        st.session_state.camera_simulation = True
+                        st.rerun()
+                    else:
+                        st.info("💡 Try the camera troubleshooting steps below or manually switch to Simulation Mode using the buttons above.")
+                        st.session_state.cap = None
                 else:
                     camera_status.success("✅ Camera initialized successfully!")
                     st.session_state.camera_simulation = False
@@ -1111,9 +1147,13 @@ if gesture_mode or lip_mode:
             
             cap = st.session_state.cap
             
-            if cap is not None and cap.isOpened():
-                # Show camera status
-                camera_status.success("📹 Camera connected and ready")
+            # Handle both real camera and simulation mode
+            if (cap is not None and cap.isOpened()) or st.session_state.get('camera_simulation', False):
+                # Show appropriate status
+                if st.session_state.get('camera_simulation', False):
+                    camera_status.success("🎬 Smart Simulation Mode - Full functionality active!")
+                else:
+                    camera_status.success("📹 Real camera connected and ready")
                 
                 # Display lip reading timer if lip mode is active
                 if lip_mode:
