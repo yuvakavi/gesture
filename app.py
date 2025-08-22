@@ -15,6 +15,9 @@ import sys
 # Suppress OpenCV warnings for cloud deployment
 os.environ['OPENCV_LOG_LEVEL'] = 'SILENT'
 os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
+os.environ['OPENCV_VIDEOIO_DEBUG'] = '0'
+import warnings
+warnings.filterwarnings('ignore')
 
 # Fix protobuf version compatibility issue
 import warnings
@@ -78,9 +81,23 @@ translator = Translator()
 @st.cache_resource
 def init_tts_engine():
     try:
-        # For Streamlit Cloud, we'll use browser-based audio or disable TTS
-        print("TTS disabled for Streamlit Cloud compatibility")
-        return None
+        # Detect environment
+        is_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd()
+        
+        if is_cloud:
+            print("TTS using cloud mode (visual notifications)")
+            return "cloud_mode"
+        
+        # Try to initialize pyttsx3 for local use
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            print("TTS initialized with pyttsx3")
+            return engine
+        except Exception as e:
+            print(f"pyttsx3 not available: {e}")
+            return "fallback_mode"
+            
     except Exception as e:
         print(f"TTS initialization error: {e}")
         return None
@@ -336,19 +353,38 @@ def speech_to_text():
     return "Speech input is not available."
 
 def text_to_speech_with_method(text, language='en', method="Auto (Recommended)", rate=150, volume=0.9):
-    """Convert text to speech with GUARANTEED AUDIBLE output - Simple and reliable"""
+    """Convert text to speech with local audio and cloud visual output"""
     if not text or not text.strip():
         return "Speech input is not available."
     
     # Clean text for better speech synthesis
     clean_text = text.replace('"', "'").replace("`", "").strip()
     
-    # Method 1: Direct Windows PowerShell SAPI - SIMPLEST AND MOST RELIABLE
+    # Detect environment
+    is_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd()
+    
+    if is_cloud:
+        # Cloud mode - visual notifications
+        st.info(f"🔊 AUDIO (Cloud Mode): {clean_text}")
+        st.balloons()
+        return
+    
+    # Local mode - try pyttsx3 first
+    try:
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.setProperty('rate', rate)
+        engine.setProperty('volume', volume)
+        engine.say(clean_text)
+        engine.runAndWait()
+        st.success(f"🔊 SPEAKING: {clean_text}")
+        return
+    except Exception as e:
+        print(f"pyttsx3 failed: {e}")
+    
+    # Fallback: PowerShell SAPI for Windows
     try:
         import subprocess
-        import os
-        
-        # Create a simple PowerShell script that MUST work
         ps_script = f'''
         Add-Type -AssemblyName System.Speech
         $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -357,7 +393,6 @@ def text_to_speech_with_method(text, language='en', method="Auto (Recommended)",
         $voice.Speak("{clean_text}")
         '''
         
-        # Run PowerShell command directly
         result = subprocess.run(
             ['powershell', '-Command', ps_script],
             capture_output=True,
@@ -366,73 +401,12 @@ def text_to_speech_with_method(text, language='en', method="Auto (Recommended)",
         )
         
         st.success(f"🔊 SPEAKING: {clean_text}")
-        print(f"PowerShell result: {result.returncode}")
-        
         if result.returncode == 0:
             return
-            
     except Exception as e:
         print(f"PowerShell SAPI failed: {e}")
     
-    # Method 2: Windows Command Line msg command (if available)
-    try:
-        import subprocess
-        # Use Windows msg command to display and announce
-        subprocess.run(['msg', '*', f'AUDIO: {clean_text}'], timeout=5)
-        st.success(f"🔊 MESSAGE SENT: {clean_text}")
-        return
-    except:
-        pass
-    
-    # Method 3: Streamlit Cloud compatible - show text notification
-    try:
-        st.info(f"🔊 AUDIO (Cloud Mode): {clean_text}")
-        st.balloons()  # Visual feedback for Streamlit Cloud
-        return
-    except Exception as e:
-        print(f"Cloud audio notification failed: {e}")
-    
-    # Method 4: Create a temporary audio file and play it
-    try:
-        import subprocess
-        import tempfile
-        import os
-        
-        # Create VBS script for text-to-speech
-        vbs_content = f'''
-        Set voice = CreateObject("SAPI.SpVoice")
-        voice.Volume = 100
-        voice.Rate = 0
-        voice.Speak "{clean_text}"
-        '''
-        
-        # Write VBS file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.vbs', delete=False) as f:
-            f.write(vbs_content)
-            vbs_file = f.name
-        
-        # Run VBS file
-        subprocess.run(['cscript', '//nologo', vbs_file], timeout=20)
-        os.unlink(vbs_file)  # Delete temp file
-        
-        st.success(f"🔊 VBS AUDIO: {clean_text}")
-        return
-        
-    except Exception as e:
-        print(f"VBS method failed: {e}")
-    
-    # Method 5: System beep + Large text display
-    try:
-        import winsound
-        # Play attention beeps
-        for i in range(3):
-            winsound.Beep(800, 300)
-            import time
-            time.sleep(0.2)
-    except:
-        pass
-    
-    # LARGE VISUAL DISPLAY if all audio fails
+    # Final fallback - visual display
     st.error("🚨 AUDIO NOT WORKING - VISUAL OUTPUT:")
     st.markdown(f"## 🔊 {clean_text}")
     st.warning("Check: 1) Volume up 2) Speakers connected 3) Audio working in other apps")
@@ -448,11 +422,15 @@ def text_to_speech(text, language='en'):
 def check_camera_access():
     """Enhanced camera access check optimized for cloud deployment"""
     try:
-        # For cloud compatibility, try simple camera access first
+        # Detect cloud environment
+        if 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd():
+            print("🌐 Cloud environment detected - skipping camera check")
+            return False
+        
+        # For local environment, try simple camera access
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         
         if cap.isOpened():
-            # Set optimized properties for cloud
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -460,11 +438,11 @@ def check_camera_access():
             ret, frame = cap.read()
             if ret and frame is not None:
                 cap.release()
-                print("✅ Camera ready for cloud deployment")
+                print("✅ Camera ready for local use")
                 return True
         
         cap.release()
-        print("📹 No camera - using simulation mode")
+        print("📹 No local camera - using simulation mode")
         return False
         
     except Exception as e:
@@ -824,7 +802,7 @@ with st.sidebar:
     # TTS Method Selection
     tts_method = st.selectbox(
         "TTS Method",
-        ["Auto (Recommended)", "Windows SAPI", "Visual Only"]
+        ["Auto (Recommended)", "pyttsx3 Engine", "Windows SAPI", "Visual Only"]
     )
     
     # Volume Control (Increased default for better audibility)
@@ -874,12 +852,23 @@ with st.sidebar:
         except Exception as e:
             st.error(f"❌ Windows SAPI test failed: {e}")
         
-        # Test audio functionality (Cloud compatible)
+        # Test audio functionality
         try:
-            # For Streamlit Cloud, we use visual notifications
-            st.info("🔊 Audio test (Streamlit Cloud mode)")
-            st.balloons()
-            st.success("✅ Cloud Audio: Visual feedback enabled")
+            # Detect environment
+            is_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd()
+            
+            if is_cloud:
+                st.info("🔊 Audio test (Streamlit Cloud mode)")
+                st.balloons()
+                st.success("✅ Cloud Audio: Visual feedback enabled")
+            else:
+                # Try pyttsx3 for local testing
+                try:
+                    import pyttsx3
+                    engine = pyttsx3.init()
+                    st.success("✅ pyttsx3 Audio: Engine ready")
+                except:
+                    st.info("✅ Audio: Using system fallback")
             
         except Exception as e:
             st.error(f"❌ Audio test failed: {e}")
@@ -968,8 +957,14 @@ with st.sidebar:
     
     # TTS Status
     if enable_tts:
-        # For Streamlit Cloud, we use visual TTS mode
-        st.success("✅ TTS Engine Ready (Cloud Mode)")
+        if tts_engine == "cloud_mode":
+            st.success("✅ TTS Engine Ready (Cloud Mode)")
+        elif tts_engine == "fallback_mode":
+            st.success("✅ TTS Engine Ready (Fallback Mode)")
+        elif tts_engine is not None:
+            st.success("✅ TTS Engine Ready (pyttsx3)")
+        else:
+            st.warning("⚠️ TTS Engine Issue")
     else:
         st.info("🔇 TTS Disabled")
 
