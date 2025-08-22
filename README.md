@@ -2,31 +2,45 @@
 
 A comprehensive real-time gesture recognition and communication system built with Streamlit, MediaPipe, and advanced computer vision technologies.
 
-## 🌟 Features
+## � Live Demo
+
+**Try it now on Streamlit Cloud:**
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/yuvakavi/ai-mood-translator/main/app.py)
+
+## �🌟 Features
 
 ### 🎯 Core Capabilities
 - **Real-time Gesture Recognition**: Advanced hand gesture detection and classification
 - **Video-based Lip Reading**: Intelligent lip movement analysis for speech detection
-- **Text-to-Speech (TTS)**: Multi-method audio output with maximum volume support
+- **Text-to-Speech (TTS)**: Multi-method audio output with cloud compatibility
 - **Multilingual Translation**: Tamil and English language support
-- **Interactive UI**: Modern 3D-styled Streamlit interface
+- **Interactive UI**: Modern 3D-styled Streamlit interface with responsive design
+- **Cloud Deployment**: Fully optimized for Streamlit Cloud deployment
 
 ### 🔧 Technologies Used
 - **Frontend**: Streamlit with custom CSS animations
-- **Computer Vision**: OpenCV, MediaPipe
+- **Computer Vision**: OpenCV (headless for cloud), MediaPipe fallback
 - **Machine Learning**: Pre-trained gesture classification models
-- **Audio Processing**: Multiple TTS engines (Windows SAPI, pyttsx3, VBS)
+- **Audio Processing**: Cloud-compatible TTS with visual notifications
 - **Translation**: Google Translate API
-- **Deployment**: Docker support included
+- **Deployment**: Streamlit Cloud ready with Docker support
 
-## 🚀 Installation
+## 🚀 Quick Start
 
-### Prerequisites
-- Python 3.8+
-- Windows OS (for optimal TTS support)
-- Webcam for gesture and lip reading
+### 🌐 Cloud Deployment (Recommended)
+1. **Instant Deploy**: Click the Streamlit badge above
+2. **Or visit**: [share.streamlit.io](https://share.streamlit.io)
+3. **Connect**: Your GitHub account
+4. **Deploy**: `yuvakavi/AI-Mood-Translator` → `main` → `app.py`
 
-### Setup Instructions
+### � Local Installation
+
+#### Prerequisites
+- Python 3.10.11 (recommended for cloud compatibility)
+- Webcam for gesture recognition (optional - simulation mode available)
+- Windows/Linux/macOS support
+
+#### Setup Instructions
 
 1. **Clone the repository**
 ```bash
