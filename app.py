@@ -530,14 +530,15 @@ def text_to_speech(text, language='en'):
     return text_to_speech_with_method(text, language, method, rate, volume)
 
 def check_camera_access():
-    """Enhanced camera access check optimized for cloud deployment"""
+    """Enhanced camera access check - always try real camera"""
     try:
-        # Detect cloud environment
-        if 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd():
+        # DISABLED: Force real camera detection instead of cloud detection
+        if False:  # Disabled cloud detection
             print("🌐 Cloud environment detected - skipping camera check")
             return False
         
-        # For local environment, try simple camera access
+        # Always try camera access regardless of environment
+        print("📹 Attempting real camera detection...")
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         
         if cap.isOpened():
@@ -548,11 +549,11 @@ def check_camera_access():
             ret, frame = cap.read()
             if ret and frame is not None:
                 cap.release()
-                print("✅ Camera ready for local use")
+                print("✅ Camera ready for use")
                 return True
         
         cap.release()
-        print("📹 No local camera - using simulation mode")
+        print("📹 No camera detected - user can choose simulation if needed")
         return False
         
     except Exception as e:
@@ -1721,19 +1722,23 @@ if gesture_mode or lip_mode:
                         st.markdown(f"""
                         <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 15px; border-radius: 10px; color: white; margin: 10px 0;">
                             <h4 style="margin: 0;">🤖 AI Simulation Active</h4>
-                            <p style="margin: 5px 0;">Detected Gesture: <strong>{simulated_gesture}</strong></p>
+                            <p style="margin: 5px 0;">Detected Gesture: <strong>{simulated_gesture.get('original', 'Unknown') if isinstance(simulated_gesture, dict) else simulated_gesture}</strong></p>
                             <p style="margin: 0; font-size: 0.9rem;">Simulating real-time gesture recognition</p>
                         </div>
                         """, unsafe_allow_html=True)
                         
                         # Continue with gesture translation if simulated gesture is detected
-                        if simulated_gesture and simulated_gesture != "Unknown":
-                            gesture_translation = translate_text(simulated_gesture, target_lang_code)
-                            st.success(f"🔄 **Simulated Translation:** {simulated_gesture} → {gesture_translation}")
+                        if simulated_gesture:
+                            # Extract gesture name from dictionary or use as-is if string
+                            gesture_name = simulated_gesture.get('original', 'Unknown') if isinstance(simulated_gesture, dict) else simulated_gesture
                             
-                            # TTS for simulated gesture
-                            if enable_tts:
-                                cloud_compatible_tts(f"Gesture detected: {simulated_gesture}", target_lang_code)
+                            if gesture_name and gesture_name != "Unknown":
+                                gesture_translation = translate_text(gesture_name, target_lang_code)
+                                st.success(f"🔄 **Simulated Translation:** {gesture_name} → {gesture_translation}")
+                                
+                                # TTS for simulated gesture
+                                if enable_tts:
+                                    cloud_compatible_tts(f"Gesture detected: {gesture_name}", target_lang_code)
                     else:
                         # Basic simulation without cloud config
                         basic_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
@@ -2123,13 +2128,14 @@ if gesture_mode or lip_mode:
                         os.path.exists('/.dockerenv')
                     ]
                     
-                    if any(cloud_indicators):
+                    # DISABLED: Force real camera instead of automatic simulation
+                    if False:  # Disabled cloud detection
                         # Cloud environment - automatically switch to simulation
                         camera_status.info("🌐 Cloud environment detected - using simulation mode")
                         st.session_state.camera_simulation = True
                         st.session_state.cap = None
                     else:
-                        # Local environment - offer reconnection options
+                        # Always offer reconnection options (local or cloud)
                         camera_status.warning("📹 Camera connection lost - attempting recovery...")
                         col1, col2, col3 = st.columns(3)
                         with col1:
