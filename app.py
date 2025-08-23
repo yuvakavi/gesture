@@ -450,12 +450,56 @@ def check_camera_access():
         return False
 
 def translate_text(text, target_language):
-    """Translate text to target language"""
+    """Translate text to target language with robust error handling"""
+    global translator
     try:
-        if text and text.strip():
+        if not text or not text.strip():
+            return text
+            
+        # Try translation with multiple fallback strategies
+        try:
+            # First attempt: regular translation
             translated = translator.translate(text, dest=target_language)
-            return translated.text
-        return text
+            
+            # Handle different response types
+            if hasattr(translated, 'text'):
+                return translated.text
+            elif hasattr(translated, '__await__'):
+                # If it's a coroutine, use asyncio
+                import asyncio
+                try:
+                    # Check if we're in an async context
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # We're in an async context, can't use run_until_complete
+                        st.warning("Async translation detected - using original text")
+                        return text
+                    except RuntimeError:
+                        # No running loop, we can create one
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            result = loop.run_until_complete(translated)
+                            return result.text if hasattr(result, 'text') else str(result)
+                        finally:
+                            loop.close()
+                except Exception as async_error:
+                    st.warning(f"Async translation failed: {async_error}")
+                    return text
+            else:
+                # Fallback: convert to string
+                return str(translated)
+                
+        except Exception as translate_error:
+            # If translation fails, try recreating the translator
+            try:
+                translator = Translator()
+                translated = translator.translate(text, dest=target_language)
+                return translated.text if hasattr(translated, 'text') else str(translated)
+            except Exception as retry_error:
+                st.warning(f"Translation service unavailable: {retry_error}")
+                return text
+                
     except Exception as e:
         st.error(f"Translation error: {e}")
         return text
