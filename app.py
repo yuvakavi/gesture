@@ -91,6 +91,58 @@ except Exception as e:
             print(f"Fallback landmark detection error: {fallback_error}")
             return None
 
+def clear_streamlit_cache():
+    """Clear Streamlit media cache to prevent file storage errors"""
+    try:
+        # Clear all Streamlit caches
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        
+        print("🧹 Streamlit cache cleared successfully")
+        return True
+    except Exception as cache_error:
+        print(f"⚠️ Cache clear warning: {cache_error}")
+        return False
+
+def validate_image_for_streamlit(image, channels="RGB"):
+    """Validate and fix image data for Streamlit display"""
+    try:
+        if image is None or image.size == 0:
+            raise ValueError("Empty or None image")
+        
+        # Ensure image is numpy array
+        if not isinstance(image, np.ndarray):
+            image = np.array(image)
+        
+        # Ensure correct data type
+        if image.dtype != np.uint8:
+            image = image.astype(np.uint8)
+        
+        # Ensure values are in valid range
+        image = np.clip(image, 0, 255)
+        
+        # Ensure correct shape for channels
+        if channels == "RGB" or channels == "BGR":
+            if len(image.shape) != 3 or image.shape[2] != 3:
+                raise ValueError(f"Invalid shape for {channels}: {image.shape}")
+        elif channels == "GRAY":
+            if len(image.shape) != 2:
+                raise ValueError(f"Invalid shape for grayscale: {image.shape}")
+        
+        return image
+        
+    except Exception as validation_error:
+        print(f"🖼️ Image validation error: {validation_error}")
+        # Return safe fallback image
+        if channels in ["RGB", "BGR"]:
+            return np.full((480, 640, 3), 128, dtype=np.uint8)
+        else:
+            return np.full((480, 640), 128, dtype=np.uint8)
+
 # Initialize components
 translator = Translator()
 
@@ -145,6 +197,11 @@ st.set_page_config(
         'About': "# AI Multimodal Communication Assistant\nBuilt with Streamlit & OpenCV"
     }
 )
+
+# Clear media cache to prevent file storage errors
+if 'cache_cleared' not in st.session_state:
+    clear_streamlit_cache()
+    st.session_state.cache_cleared = True
 
 # Cloud performance optimization
 if 'cloud_mode' not in st.session_state:
@@ -1715,8 +1772,20 @@ if gesture_mode or lip_mode:
                         # Simulate gesture recognition
                         simulated_gesture = simulate_gesture_recognition()
                         
-                        # Display simulation info
-                        camera_placeholder.image(frame, channels="BGR", caption="🎬 Manual Simulation Mode Active")
+                        # Display simulation info with validation
+                        try:
+                            # Ensure frame is valid for display
+                            if frame is not None and frame.size > 0:
+                                # Validate and fix frame data
+                                validated_frame = validate_image_for_streamlit(frame, "BGR")
+                                camera_placeholder.image(validated_frame, channels="BGR", caption="🎬 Manual Simulation Mode Active")
+                            else:
+                                st.warning("⚠️ Simulation frame not available")
+                        except Exception as img_error:
+                            st.error(f"🖼️ Image display error: {img_error}")
+                            # Create a fallback frame
+                            fallback_frame = validate_image_for_streamlit(None, "BGR")
+                            camera_placeholder.image(fallback_frame, channels="BGR", caption="🔧 Fallback Mode")
                         
                         # Create simulation UI with gesture results
                         st.markdown(f"""
@@ -1740,9 +1809,17 @@ if gesture_mode or lip_mode:
                                 if enable_tts:
                                     cloud_compatible_tts(f"Gesture detected: {gesture_name}", target_lang_code)
                     else:
-                        # Basic simulation without cloud config
-                        basic_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-                        camera_placeholder.image(basic_frame, channels="BGR", caption="🎬 Basic Simulation Mode")
+                        # Basic simulation without cloud config with validation
+                        try:
+                            basic_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+                            # Validate frame for Streamlit
+                            validated_basic_frame = validate_image_for_streamlit(basic_frame, "BGR")
+                            camera_placeholder.image(validated_basic_frame, channels="BGR", caption="🎬 Basic Simulation Mode")
+                        except Exception as basic_sim_error:
+                            st.error(f"🖼️ Basic simulation error: {basic_sim_error}")
+                            # Ultra-safe fallback
+                            safe_frame = validate_image_for_streamlit(None, "BGR")
+                            camera_placeholder.image(safe_frame, channels="BGR", caption="🔧 Safe Mode")
                         st.info("🌐 Cloud simulation active - camera features simulated")
                     
                     # Skip camera processing since we're in simulation mode
@@ -1781,14 +1858,35 @@ if gesture_mode or lip_mode:
                         time.sleep(1.0)
                         # Flip frame horizontally for mirror effect
                         frame = cv2.flip(frame, 1)
-                        # Convert BGR to RGB for Streamlit
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        # Display frame in full width
-                        camera_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                        
+                        try:
+                            # Convert BGR to RGB for Streamlit with validation
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            # Validate and fix frame for Streamlit
+                            validated_frame = validate_image_for_streamlit(frame_rgb, "RGB")
+                            
+                            # Display frame in full width with error handling
+                            camera_placeholder.image(validated_frame, channels="RGB", use_container_width=True)
+                                
+                        except Exception as display_error:
+                            st.error(f"🖼️ Frame display error: {display_error}")
+                            # Create safe fallback frame
+                            safe_frame = validate_image_for_streamlit(None, "RGB")
+                            camera_placeholder.image(safe_frame, channels="RGB", caption="🔧 Safe Display Mode")
                         
                         # Reset any camera error counters
                         if 'camera_error_count' in st.session_state:
                             st.session_state.camera_error_count = 0
+                        
+                        # Periodic cache cleanup to prevent media file storage errors
+                        if 'frame_count' not in st.session_state:
+                            st.session_state.frame_count = 0
+                        st.session_state.frame_count += 1
+                        
+                        # Clear cache every 50 frames to prevent accumulation
+                        if st.session_state.frame_count % 50 == 0:
+                            clear_streamlit_cache()
+                            print(f"🧹 Cache cleaned at frame {st.session_state.frame_count}")
                     else:
                         # Handle camera frame reading failure
                         if 'camera_error_count' not in st.session_state:
@@ -2187,7 +2285,16 @@ if gesture_mode or lip_mode:
                         cv2.putText(simulation_frame, "Camera Simulation Active", (170, 280), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                     
-                    camera_placeholder.image(simulation_frame, channels="RGB", use_container_width=True)
+                    try:
+                        # Validate and fix simulation frame for Streamlit
+                        validated_sim_frame = validate_image_for_streamlit(simulation_frame, "RGB")
+                        camera_placeholder.image(validated_sim_frame, channels="RGB", use_container_width=True)
+                            
+                    except Exception as sim_display_error:
+                        st.error(f"🖼️ Simulation display error: {sim_display_error}")
+                        # Ultra-safe fallback for simulation
+                        emergency_frame = validate_image_for_streamlit(None, "RGB")
+                        camera_placeholder.image(emergency_frame, channels="RGB", caption="🚨 Emergency Mode")
                     
                     # Provide simulation controls
                     sim_col1, sim_col2, sim_col3 = st.columns(3)
