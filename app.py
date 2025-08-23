@@ -987,9 +987,15 @@ if gesture_mode or lip_mode:
             st.markdown('<div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 10px; border-radius: 10px; color: white; transform: perspective(500px) rotateX(10deg);">🎬 Smart Simulation Mode Available - Full functionality maintained!</div>', unsafe_allow_html=True)
     
     with col_control:
-        run_camera = st.checkbox("Start Camera")
+        # Automatic camera initialization - no user intervention needed
+        if 'auto_camera_started' not in st.session_state:
+            st.session_state.auto_camera_started = True
+            run_camera = True
+            st.success("🚀 Auto-started camera capture!")
+        else:
+            run_camera = st.checkbox("📹 Camera Active", value=True)
     
-    # Camera Mode Control Section
+    # Camera Mode Control Section - Always active for auto-capture
     if run_camera:
         st.markdown("---")
         mode_col1, mode_col2, mode_col3 = st.columns(3)
@@ -1012,6 +1018,23 @@ if gesture_mode or lip_mode:
                 if 'cap' in st.session_state and st.session_state.cap:
                     st.session_state.cap.release()
                     st.session_state.cap = None
+                st.rerun()
+        
+        # Camera capture controls
+        st.markdown("### 📸 Capture Controls")
+        capture_col1, capture_col2, capture_col3 = st.columns(3)
+        
+        with capture_col1:
+            auto_capture_enabled = st.checkbox("🔄 Auto-capture (every 5s)", value=True)
+            st.session_state.auto_capture_enabled = auto_capture_enabled
+            
+        with capture_col2:
+            if st.button("📸 Capture Now!", key="manual_capture"):
+                st.session_state.manual_capture_trigger = True
+                
+        with capture_col3:
+            if 'capture_count' in st.session_state:
+                st.metric("📷 Total Captures", st.session_state.capture_count)
                 st.rerun()
     
     if run_camera:
@@ -1190,6 +1213,52 @@ if gesture_mode or lip_mode:
                         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         # Display frame in full width
                         camera_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                        
+                        # Automatic image capture every 5 seconds
+                        if 'last_capture_time' not in st.session_state:
+                            st.session_state.last_capture_time = time.time()
+                            st.session_state.capture_count = 0
+                        
+                        # Manual capture trigger
+                        manual_capture = st.session_state.get('manual_capture_trigger', False)
+                        if manual_capture:
+                            st.session_state.manual_capture_trigger = False
+                            # Force immediate capture
+                            current_time = time.time()
+                            st.session_state.capture_count += 1
+                            
+                            # Save captured image
+                            if not os.path.exists('captures'):
+                                os.makedirs('captures')
+                            capture_filename = f'captures/manual_capture_{st.session_state.capture_count}_{int(current_time)}.jpg'
+                            cv2.imwrite(capture_filename, frame)
+                            
+                            st.success(f"📸 Manual capture #{st.session_state.capture_count} saved!")
+                            
+                            # Play audible notification
+                            if enable_tts:
+                                text_to_speech_with_method(f"Manual image {st.session_state.capture_count} captured", target_lang_code, "pyttsx3 Only", 150, 1.0)
+                        
+                        # Auto capture logic (check if auto-capture is enabled)
+                        auto_capture_enabled = st.session_state.get('auto_capture_enabled', True)
+                        current_time = time.time()
+                        if auto_capture_enabled and current_time - st.session_state.last_capture_time >= 5.0:  # Capture every 5 seconds
+                            st.session_state.capture_count += 1
+                            st.session_state.last_capture_time = current_time
+                            
+                            # Save captured image
+                            if not os.path.exists('captures'):
+                                os.makedirs('captures')
+                            capture_filename = f'captures/auto_capture_{st.session_state.capture_count}_{int(current_time)}.jpg'
+                            cv2.imwrite(capture_filename, frame)
+                            
+                            # Show capture notification with sound
+                            st.success(f"📸 Auto-captured image #{st.session_state.capture_count}")
+                            
+                            # Play audible notification for capture
+                            if enable_tts:
+                                text_to_speech_with_method(f"Image {st.session_state.capture_count} captured automatically", target_lang_code, "pyttsx3 Only", 150, 1.0)
+                    
                     # Removed invalid else block
                         
                         # Clear any previous error messages
