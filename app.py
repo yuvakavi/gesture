@@ -1519,6 +1519,7 @@ if gesture_mode or lip_mode:
                     os.environ.get('HOME', '').startswith('/mount') or os.environ.get('HOME', '').startswith('/app')
                 ]
                 
+                # DISABLED: Force real camera detection instead of cloud detection
                 # Additional checks for Streamlit Cloud specifically
                 cwd = os.getcwd()
                 if any([
@@ -1528,12 +1529,14 @@ if gesture_mode or lip_mode:
                 ]):
                     cloud_indicators.append(True)
                 
-                if any(cloud_indicators):
+                # DISABLED: Always try real camera instead of cloud detection
+                if False:  # Disabled cloud detection
                     print("🌐 Cloud environment detected - camera not available")
                     print(f"🔍 Environment details: CWD={cwd}, HOME={os.environ.get('HOME', 'N/A')}")
                     return False
                 
-                # Quick test with minimal resources for local environment
+                # Always try camera detection regardless of environment
+                print("📹 Forcing real camera detection...")
                 test_cap = cv2.VideoCapture(0)
                 if test_cap.isOpened():
                     ret, frame = test_cap.read()
@@ -1580,30 +1583,24 @@ if gesture_mode or lip_mode:
             ]):
                 cloud_indicators.append(True)
             
-            is_cloud_environment = any(cloud_indicators)
+            # DISABLED: Force real camera mode instead of cloud detection
+            is_cloud_environment = False  # Always use real camera
             
             # Debug information
-            print(f"🔍 Cloud Detection Debug:")
+            print(f"🔍 Camera Mode Debug:")
             print(f"   Current working directory: {cwd}")
             print(f"   Environment HOME: {os.environ.get('HOME', 'N/A')}")
-            print(f"   Cloud detected: {is_cloud_environment}")
+            print(f"   Forced camera mode: Real camera enabled")
             print(f"   Manual simulation: {st.session_state.get('camera_simulation', False)}")
             
-            # Check if user manually chose simulation mode OR if we're in cloud
-            if st.session_state.get('camera_simulation', False) or is_cloud_environment:
+            # Force camera simulation to False (real camera mode)
+            if 'camera_simulation' not in st.session_state:
+                st.session_state.camera_simulation = False
+            
+            # Only use simulation if manually enabled by user (not automatic cloud detection)
+            if st.session_state.get('camera_simulation', False):
                 with camera_status.container():
-                    if is_cloud_environment:
-                        st.info("🌐 Cloud Environment Detected - Smart Simulation Mode Active")
-                        st.markdown("""
-                        <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 15px; border-radius: 10px; color: white; margin: 10px 0;">
-                            <h4 style="margin: 0;">📱 Streamlit Cloud Compatibility Mode</h4>
-                            <p style="margin: 5px 0;">Camera simulation enabled for cloud deployment</p>
-                            <p style="margin: 0; font-size: 0.9rem;">All features available with intelligent simulation</p>
-                            <p style="margin: 5px 0; font-size: 0.8rem;">🔍 Debug: CWD contains '/mount/src': {'/mount/src' in cwd}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.success("🎬 Smart Simulation Mode Active - Full Functionality Available!")
+                    st.success("🎬 Manual Simulation Mode Active - Full Functionality Available!")
                 st.session_state.cap = None
                 st.session_state.camera_simulation = True
             elif 'cap' not in st.session_state or st.session_state.cap is None or not st.session_state.cap.isOpened():
@@ -1709,8 +1706,8 @@ if gesture_mode or lip_mode:
                         ''', unsafe_allow_html=True)
                         st.session_state.lip_active = False
                 
-                # Check for simulation mode BEFORE any camera access
-                if st.session_state.get('camera_simulation', False) or cap is None:
+                # Only use simulation mode if MANUALLY enabled by user
+                if st.session_state.get('camera_simulation', False):
                     # Generate simulation frame using cloud config if available
                     if CLOUD_CONFIG_AVAILABLE:
                         frame = create_simulation_frame()
@@ -1718,7 +1715,7 @@ if gesture_mode or lip_mode:
                         simulated_gesture = simulate_gesture_recognition()
                         
                         # Display simulation info
-                        camera_placeholder.image(frame, channels="BGR", caption="🎬 Smart Simulation Mode Active")
+                        camera_placeholder.image(frame, channels="BGR", caption="🎬 Manual Simulation Mode Active")
                         
                         # Create simulation UI with gesture results
                         st.markdown(f"""
