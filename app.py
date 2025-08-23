@@ -48,6 +48,7 @@ except Exception as protobuf_error:
 try:
     # Import our fallback helpers (MediaPipe disabled for cloud compatibility)
     from utils.mediapipe_helpers import get_hand_landmarks
+    
     MEDIAPIPE_AVAILABLE = False  # Using fallback mode for Streamlit Cloud
     print("Using fallback gesture recognition for Streamlit Cloud compatibility")
 except Exception as e:
@@ -1268,21 +1269,38 @@ if gesture_mode or lip_mode:
                 st.rerun()
         
         # Camera capture controls
-        st.markdown("### 📸 Capture Controls")
-        capture_col1, capture_col2, capture_col3 = st.columns(3)
+        st.markdown("### 📸 Enhanced Capture Controls")
+        capture_col1, capture_col2, capture_col3, capture_col4 = st.columns(4)
         
         with capture_col1:
             auto_capture_enabled = st.checkbox("🔄 Auto-capture (every 5s)", value=True)
             st.session_state.auto_capture_enabled = auto_capture_enabled
             
         with capture_col2:
+            gesture_capture_enabled = st.checkbox("🤏 Gesture Capture", value=False, help="Capture when specific gestures are detected")
+            st.session_state.gesture_capture_enabled = gesture_capture_enabled
+            
+        with capture_col3:
             if st.button("📸 Capture Now!", key="manual_capture"):
                 st.session_state.manual_capture_trigger = True
                 
-        with capture_col3:
+        with capture_col4:
             if 'capture_count' in st.session_state:
                 st.metric("📷 Total Captures", st.session_state.capture_count)
-                st.rerun()
+        
+        # Voice feedback controls
+        voice_col1, voice_col2 = st.columns(2)
+        with voice_col1:
+            capture_voice_enabled = st.checkbox("🔊 Voice Feedback", value=True, help="Announce captures and gestures")
+            st.session_state.capture_voice_enabled = capture_voice_enabled
+        
+        with voice_col2:
+            # Text input for voice output
+            text_input = st.text_input("💬 Text to Speech:", placeholder="Enter text to speak...", key="voice_text_input")
+            if st.button("🎙️ Speak Text", key="speak_button") and text_input:
+                if enable_tts:
+                    text_to_speech_with_method(text_input, target_lang_code)
+                st.success(f"🔊 Speaking: {text_input}")
     
     if run_camera:
         # Initialize session state for tracking
@@ -1327,9 +1345,9 @@ if gesture_mode or lip_mode:
         camera_placeholder = st.empty()
         camera_status = st.empty()
         
-        # Try to initialize camera with enhanced retry mechanism
+        # Enhanced camera initialization with frame validation
         def init_camera_robust():
-            """Robust camera initialization with multiple backends and error handling"""
+            """Robust camera initialization with comprehensive frame validation"""
             camera_configs = [
                 (0, cv2.CAP_DSHOW, "DirectShow (Primary)"),
                 (0, cv2.CAP_MSMF, "Media Foundation"),
@@ -1340,39 +1358,105 @@ if gesture_mode or lip_mode:
                 (2, cv2.CAP_ANY, "Any Backend (Camera 2)"),
             ]
             
+            def configure_camera_properties(cap):
+                """Configure optimal camera properties"""
+                properties = [
+                    (cv2.CAP_PROP_FRAME_WIDTH, 640),
+                    (cv2.CAP_PROP_FRAME_HEIGHT, 480),
+                    (cv2.CAP_PROP_FPS, 30),
+                    (cv2.CAP_PROP_BUFFERSIZE, 1),  # Reduce buffer for latest frames
+                    (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')),
+                ]
+                
+                for prop, value in properties:
+                    try:
+                        cap.set(prop, value)
+                    except:
+                        pass  # Some properties might not be supported
+                
+                # Optional properties for better quality
+                try:
+                    cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+                    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+                except:
+                    pass
+            
+            def validate_frame_content(frame):
+                """Validate that frame contains actual image data"""
+                if frame is None or frame.size == 0:
+                    return False
+                
+                # Check if frame has variation (not solid color)
+                mean_val = np.mean(frame)
+                std_val = np.std(frame)
+                
+                # Frame should have some variation
+                if std_val < 5:
+                    print(f"⚠️ Frame appears to be solid color (std: {std_val:.2f})")
+                    return False
+                
+                # Frame should not be completely black or white
+                if mean_val < 10 or mean_val > 245:
+                    print(f"⚠️ Frame appears to be too dark/bright (mean: {mean_val:.2f})")
+                    return False
+                
+                return True
+            
+            def test_frame_reading(cap, backend_name, max_attempts=15):
+                """Enhanced frame reading test with multiple strategies"""
+                print(f"🔍 Testing frame reading for {backend_name}...")
+                
+                # Strategy 1: Direct frame reading
+                successful_frames = 0
+                for attempt in range(max_attempts):
+                    ret, frame = cap.read()
+                    if ret and frame is not None and frame.size > 0:
+                        if validate_frame_content(frame):
+                            successful_frames += 1
+                            print(f"✅ Valid frame {successful_frames}/{max_attempts}")
+                            if successful_frames >= 3:  # Require 3 valid frames
+                                return True
+                    else:
+                        print(f"❌ Attempt {attempt + 1}: No valid frame")
+                    time.sleep(0.1)
+                
+                # Strategy 2: Flush buffer and retry
+                print("🔄 Flushing camera buffer...")
+                for _ in range(5):
+                    cap.read()  # Flush old frames
+                time.sleep(0.3)
+                
+                for attempt in range(5):
+                    ret, frame = cap.read()
+                    if ret and frame is not None and frame.size > 0:
+                        if validate_frame_content(frame):
+                            print(f"✅ Buffer flush successful on attempt {attempt + 1}")
+                            return True
+                    time.sleep(0.1)
+                
+                return False
+            
+            # Try each camera configuration
             for camera_index, backend, backend_name in camera_configs:
                 try:
                     print(f"🔍 Trying {backend_name}...")
                     cap = cv2.VideoCapture(camera_index, backend)
                     
-                    if cap.isOpened():
-                        # Enhanced camera properties for better compatibility
-                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                        cap.set(cv2.CAP_PROP_FPS, 30)
-                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
-                        
-                        # Optional properties (may not be supported by all cameras)
-                        try:
-                            cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
-                            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
-                        except:
-                            pass  # Ignore if not supported
-                        
-                        # Test camera with multiple frame reads
-                        successful_reads = 0
-                        for test_attempt in range(10):
-                            ret, frame = cap.read()
-                            if ret and frame is not None and frame.size > 0:
-                                h, w = frame.shape[:2]
-                                if h > 0 and w > 0:
-                                    successful_reads += 1
-                                    if successful_reads >= 3:  # Require 3 successful reads
-                                        print(f"✅ Camera initialized successfully: {backend_name}")
-                                        return cap
-                            time.sleep(0.05)
+                    if not cap.isOpened():
+                        print(f"❌ {backend_name}: Cannot open camera")
+                        continue
                     
-                    cap.release()
+                    # Configure camera properties
+                    configure_camera_properties(cap)
+                    time.sleep(0.5)  # Allow camera to warm up
+                    
+                    # Test frame reading with validation
+                    if test_frame_reading(cap, backend_name):
+                        print(f"✅ Camera initialized successfully: {backend_name}")
+                        return cap
+                    else:
+                        print(f"❌ {backend_name}: Frame reading failed")
+                        cap.release()
                     
                 except Exception as e:
                     print(f"❌ Failed {backend_name}: {e}")
@@ -1383,7 +1467,7 @@ if gesture_mode or lip_mode:
                             pass
                     continue
             
-            print("❌ No working camera found")
+            print("❌ No working camera found with valid frame reading")
             return None
         
         # Enhanced camera status checking
@@ -1509,20 +1593,68 @@ if gesture_mode or lip_mode:
                         ''', unsafe_allow_html=True)
                         st.session_state.lip_active = False
                 
-                # Try to read frame with enhanced error handling
+                # Enhanced frame reading with validation and error handling
                 if cap is not None and cap.isOpened():
-                    ret, frame = cap.read()
-                    if ret and frame is not None:
-                        # Check frame validity
-                        if frame.size > 0:
-                            # Add 1 second delay for camera frame rate control
-                            time.sleep(1.0)
-                            # Flip frame horizontally for mirror effect
-                            frame = cv2.flip(frame, 1)
+                    # Read multiple frames to flush buffer and get latest
+                    frame_attempts = 0
+                    max_attempts = 5
+                    valid_frame = None
+                    
+                    while frame_attempts < max_attempts:
+                        ret, frame = cap.read()
+                        frame_attempts += 1
+                        
+                        if ret and frame is not None and frame.size > 0:
+                            # Validate frame content
+                            mean_val = np.mean(frame)
+                            std_val = np.std(frame)
+                            
+                            # Check if frame has valid content (not solid color)
+                            if std_val > 5 and 10 < mean_val < 245:
+                                valid_frame = frame
+                                break
+                            else:
+                                print(f"⚠️ Frame {frame_attempts} validation failed: std={std_val:.2f}, mean={mean_val:.2f}")
+                                time.sleep(0.1)  # Brief delay before retry
+                        else:
+                            print(f"❌ Frame read attempt {frame_attempts} failed")
+                            time.sleep(0.1)
+                    
+                    if valid_frame is not None:
+                        frame = valid_frame
+                        # Add 1 second delay for camera frame rate control
+                        time.sleep(1.0)
+                        # Flip frame horizontally for mirror effect
+                        frame = cv2.flip(frame, 1)
                         # Convert BGR to RGB for Streamlit
                         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         # Display frame in full width
                         camera_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                        
+                        # Reset any camera error counters
+                        if 'camera_error_count' in st.session_state:
+                            st.session_state.camera_error_count = 0
+                    else:
+                        # Handle camera frame reading failure
+                        if 'camera_error_count' not in st.session_state:
+                            st.session_state.camera_error_count = 0
+                        st.session_state.camera_error_count += 1
+                        
+                        if st.session_state.camera_error_count <= 3:
+                            camera_placeholder.error(f"⚠️ Camera frame reading issue (attempt {st.session_state.camera_error_count}/3)")
+                        else:
+                            camera_placeholder.error("❌ Camera frame reading failed - Try reinitializing camera")
+                            # Offer camera reset option
+                            if st.button("🔄 Reset Camera", key="reset_camera_frames"):
+                                if st.session_state.cap:
+                                    st.session_state.cap.release()
+                                st.session_state.cap = None
+                                st.session_state.camera_error_count = 0
+                                st.rerun()
+                        # Skip further camera processing if no valid frame
+                        st.stop()
+                
+                # If we have a valid frame, proceed with capture logic
                         
                         # Automatic image capture every 5 seconds
                         if 'last_capture_time' not in st.session_state:
@@ -1549,9 +1681,13 @@ if gesture_mode or lip_mode:
                             if enable_tts:
                                 text_to_speech_with_method(f"Manual image {st.session_state.capture_count} captured", target_lang_code, "pyttsx3 Only", 150, 1.0)
                         
-                        # Auto capture logic (check if auto-capture is enabled)
+                        # Enhanced Auto capture logic with gesture detection
                         auto_capture_enabled = st.session_state.get('auto_capture_enabled', True)
+                        gesture_capture_enabled = st.session_state.get('gesture_capture_enabled', False)
+                        capture_voice_enabled = st.session_state.get('capture_voice_enabled', True)
                         current_time = time.time()
+                        
+                        # Time-based auto capture
                         if auto_capture_enabled and current_time - st.session_state.last_capture_time >= 5.0:  # Capture every 5 seconds
                             st.session_state.capture_count += 1
                             st.session_state.last_capture_time = current_time
@@ -1562,12 +1698,64 @@ if gesture_mode or lip_mode:
                             capture_filename = f'captures/auto_capture_{st.session_state.capture_count}_{int(current_time)}.jpg'
                             cv2.imwrite(capture_filename, frame)
                             
-                            # Show capture notification with sound
+                            # Show capture notification with enhanced feedback
                             st.success(f"📸 Auto-captured image #{st.session_state.capture_count}")
                             
-                            # Play audible notification for capture
-                            if enable_tts:
+                            # Enhanced voice feedback
+                            if enable_tts and capture_voice_enabled:
                                 text_to_speech_with_method(f"Image {st.session_state.capture_count} captured automatically", target_lang_code, "pyttsx3 Only", 150, 1.0)
+                        
+                        # Gesture-triggered capture (when gesture capture is enabled)
+                        if gesture_capture_enabled and gesture_mode:
+                            # Initialize gesture capture tracking
+                            if 'last_gesture_capture' not in st.session_state:
+                                st.session_state.last_gesture_capture = ''
+                            if 'gesture_capture_cooldown' not in st.session_state:
+                                st.session_state.gesture_capture_cooldown = 0
+                            
+                            # Quick gesture detection for capture triggering
+                            try:
+                                landmarks = get_hand_landmarks(frame)
+                                if landmarks is not None:
+                                    # Simple gesture detection for capture
+                                    landmarks_array = np.array(landmarks).reshape(-1, 3)
+                                    
+                                    # Detect thumbs up gesture for capture
+                                    thumb_tip = landmarks_array[4]
+                                    thumb_mcp = landmarks_array[2]
+                                    index_tip = landmarks_array[8]
+                                    
+                                    gesture_detected = None
+                                    if thumb_tip[1] < thumb_mcp[1] and thumb_tip[1] < index_tip[1]:
+                                        gesture_detected = 'thumbs_up'
+                                    elif len([i for i in range(8, 21, 4) if landmarks_array[i][1] < landmarks_array[i-2][1]]) >= 4:
+                                        gesture_detected = 'open_hand'
+                                    
+                                    # Trigger capture on specific gestures with cooldown
+                                    if (gesture_detected in ['thumbs_up', 'open_hand'] and 
+                                        gesture_detected != st.session_state.last_gesture_capture and
+                                        current_time - st.session_state.gesture_capture_cooldown > 2.0):
+                                        
+                                        st.session_state.capture_count += 1
+                                        st.session_state.last_gesture_capture = gesture_detected
+                                        st.session_state.gesture_capture_cooldown = current_time
+                                        
+                                        # Save gesture-triggered capture
+                                        if not os.path.exists('captures'):
+                                            os.makedirs('captures')
+                                        capture_filename = f'captures/gesture_capture_{gesture_detected}_{st.session_state.capture_count}_{int(current_time)}.jpg'
+                                        cv2.imwrite(capture_filename, frame)
+                                        
+                                        # Enhanced feedback for gesture capture
+                                        st.success(f"🤏 Gesture captured! {gesture_detected.replace('_', ' ').title()} - Image #{st.session_state.capture_count}")
+                                        
+                                        # Voice feedback for gesture capture
+                                        if enable_tts and capture_voice_enabled:
+                                            text_to_speech_with_method(f"Gesture {gesture_detected.replace('_', ' ')} captured successfully", target_lang_code, "pyttsx3 Only", 150, 1.0)
+                            
+                            except Exception as gesture_error:
+                                # Silent handling of gesture detection errors
+                                pass
                     
                     # Removed invalid else block
                         
@@ -1771,14 +1959,11 @@ if gesture_mode or lip_mode:
                                             st.session_state['gesture_detected'] = gesture_result
                                             st.session_state.gesture_count += 1
                                             st.success("✅ Enhanced fallback gesture processed successfully!")
-                    else:
-                        # Frame is empty or invalid
-                        camera_status.error("❌ Unable to read frame from camera - check camera connection")
-                        camera_placeholder.error("📹 Camera connected but not producing valid frames")
-                else:
-                    # Unable to read from camera
+                
+                # Camera status and error handling
+                if cap is None or not cap.isOpened():
                     camera_status.error("❌ Unable to read from camera - trying to reconnect...")
-                    camera_placeholder.error("� Camera read failed - attempting reconnection")
+                    camera_placeholder.error("📹 Camera read failed - attempting reconnection")
                     # Try to reconnect
                     if cap is not None:
                         cap.release()
