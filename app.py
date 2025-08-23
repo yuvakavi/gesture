@@ -12,6 +12,22 @@ import time
 import os
 import sys
 
+# Import cloud configuration
+try:
+    from streamlit_cloud_config import (
+        detect_cloud_environment, 
+        configure_for_cloud, 
+        create_simulation_frame,
+        simulate_gesture_recognition,
+        cloud_compatible_tts,
+        show_cloud_info
+    )
+    CLOUD_CONFIG_AVAILABLE = True
+except ImportError:
+    CLOUD_CONFIG_AVAILABLE = False
+    def detect_cloud_environment(): return False
+    def configure_for_cloud(): return False
+
 # Suppress OpenCV warnings for cloud deployment
 os.environ['OPENCV_LOG_LEVEL'] = 'SILENT'
 os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
@@ -743,6 +759,16 @@ if 'lip_start_time' not in st.session_state:
 if 'lip_duration' not in st.session_state:
     st.session_state.lip_duration = 60
 
+# 🌐 Cloud Environment Configuration
+IS_CLOUD = detect_cloud_environment()
+if IS_CLOUD:
+    configure_for_cloud()
+    st.markdown("""
+    <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 10px; border-radius: 10px; color: white; margin: 10px 0; text-align: center;">
+        🌐 <strong>Streamlit Cloud Detected</strong> - Optimized for cloud deployment
+    </div>
+    """, unsafe_allow_html=True)
+
 # Enhanced CSS with 3D animations
 st.markdown("""
 <style>
@@ -1470,31 +1496,121 @@ if gesture_mode or lip_mode:
             print("❌ No working camera found with valid frame reading")
             return None
         
-        # Enhanced camera status checking
+        # Enhanced camera status checking with cloud detection
         def check_camera_advanced():
-            """Advanced camera availability check"""
+            """Advanced camera availability check with cloud environment detection"""
             try:
-                # Quick test with minimal resources
+                # Detect cloud environment more comprehensively with better detection patterns
+                cloud_indicators = [
+                    'STREAMLIT_SHARING' in os.environ,
+                    'STREAMLIT_CLOUD' in os.environ,
+                    '/mount/src' in os.getcwd(),
+                    '/app' in os.getcwd(),
+                    'streamlit.io' in os.environ.get('HOSTNAME', ''),
+                    'heroku' in os.environ.get('DYNO', ''),
+                    os.path.exists('/.dockerenv'),
+                    'CODESPACE_NAME' in os.environ,
+                    'GITHUB_ACTIONS' in os.environ,
+                    'REPLIT' in os.environ,
+                    'RAILWAY' in os.environ,
+                    '/tmp' in os.getcwd() and not os.path.exists('/home'),  # Cloud container pattern
+                    'gesture' in os.getcwd() and '/mount/src' in os.getcwd(),  # Your specific deployment
+                    not os.path.exists('/dev/video0'),  # No camera device file
+                    os.environ.get('HOME', '').startswith('/mount') or os.environ.get('HOME', '').startswith('/app')
+                ]
+                
+                # Additional checks for Streamlit Cloud specifically
+                cwd = os.getcwd()
+                if any([
+                    '/mount/src' in cwd,
+                    '/app' in cwd and 'streamlit' in os.environ.get('PATH', ''),
+                    'workspace' in cwd and not os.path.exists('C:'),  # Linux-based cloud
+                ]):
+                    cloud_indicators.append(True)
+                
+                if any(cloud_indicators):
+                    print("🌐 Cloud environment detected - camera not available")
+                    print(f"🔍 Environment details: CWD={cwd}, HOME={os.environ.get('HOME', 'N/A')}")
+                    return False
+                
+                # Quick test with minimal resources for local environment
                 test_cap = cv2.VideoCapture(0)
                 if test_cap.isOpened():
                     ret, frame = test_cap.read()
                     test_cap.release()
-                    return ret and frame is not None and frame.size > 0
-                return False
-            except:
+                    if ret and frame is not None and frame.size > 0:
+                        print("✅ Local camera detected and working")
+                        return True
+                    else:
+                        print("❌ Local camera detected but not producing frames")
+                        return False
+                else:
+                    print("❌ No local camera found")
+                    return False
+            except Exception as e:
+                print(f"Camera check error: {e}")
                 return False
         
         try:
-            # Check if user manually chose simulation mode
-            if st.session_state.get('camera_simulation', False):
+            # Enhanced cloud environment detection with more specific patterns
+            cloud_indicators = [
+                'STREAMLIT_SHARING' in os.environ,
+                'STREAMLIT_CLOUD' in os.environ,
+                '/mount/src' in os.getcwd(),
+                '/app' in os.getcwd(),
+                'streamlit.io' in os.environ.get('HOSTNAME', ''),
+                'heroku' in os.environ.get('DYNO', ''),
+                os.path.exists('/.dockerenv'),
+                'CODESPACE_NAME' in os.environ,
+                'GITHUB_ACTIONS' in os.environ,
+                'REPLIT' in os.environ,
+                'RAILWAY' in os.environ,
+                '/tmp' in os.getcwd() and not os.path.exists('/home'),  # Cloud container pattern
+                'gesture' in os.getcwd() and '/mount/src' in os.getcwd(),  # Your specific deployment
+                not os.path.exists('/dev/video0'),  # No camera device file
+                os.environ.get('HOME', '').startswith('/mount') or os.environ.get('HOME', '').startswith('/app')
+            ]
+            
+            # Additional checks for Streamlit Cloud specifically
+            cwd = os.getcwd()
+            if any([
+                '/mount/src' in cwd,
+                '/app' in cwd and 'streamlit' in os.environ.get('PATH', ''),
+                'workspace' in cwd and not os.path.exists('C:'),  # Linux-based cloud
+            ]):
+                cloud_indicators.append(True)
+            
+            is_cloud_environment = any(cloud_indicators)
+            
+            # Debug information
+            print(f"🔍 Cloud Detection Debug:")
+            print(f"   Current working directory: {cwd}")
+            print(f"   Environment HOME: {os.environ.get('HOME', 'N/A')}")
+            print(f"   Cloud detected: {is_cloud_environment}")
+            print(f"   Manual simulation: {st.session_state.get('camera_simulation', False)}")
+            
+            # Check if user manually chose simulation mode OR if we're in cloud
+            if st.session_state.get('camera_simulation', False) or is_cloud_environment:
                 with camera_status.container():
-                    st.success("🎬 Smart Simulation Mode Active - Full Functionality Available!")
+                    if is_cloud_environment:
+                        st.info("🌐 Cloud Environment Detected - Smart Simulation Mode Active")
+                        st.markdown("""
+                        <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 15px; border-radius: 10px; color: white; margin: 10px 0;">
+                            <h4 style="margin: 0;">📱 Streamlit Cloud Compatibility Mode</h4>
+                            <p style="margin: 5px 0;">Camera simulation enabled for cloud deployment</p>
+                            <p style="margin: 0; font-size: 0.9rem;">All features available with intelligent simulation</p>
+                            <p style="margin: 5px 0; font-size: 0.8rem;">🔍 Debug: CWD contains '/mount/src': {'/mount/src' in cwd}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.success("🎬 Smart Simulation Mode Active - Full Functionality Available!")
                 st.session_state.cap = None
+                st.session_state.camera_simulation = True
             elif 'cap' not in st.session_state or st.session_state.cap is None or not st.session_state.cap.isOpened():
                 with camera_status.container():
                     st.info("🔄 Initializing camera system...")
                 
-                # Advanced camera availability check
+                # Advanced camera availability check (only for local environment)
                 camera_available = check_camera_advanced()
                 
                 if camera_available:
@@ -1593,8 +1709,45 @@ if gesture_mode or lip_mode:
                         ''', unsafe_allow_html=True)
                         st.session_state.lip_active = False
                 
-                # Enhanced frame reading with validation and error handling
-                if cap is not None and cap.isOpened():
+                # Check for simulation mode BEFORE any camera access
+                if st.session_state.get('camera_simulation', False) or cap is None:
+                    # Generate simulation frame using cloud config if available
+                    if CLOUD_CONFIG_AVAILABLE:
+                        frame = create_simulation_frame()
+                        # Simulate gesture recognition
+                        simulated_gesture = simulate_gesture_recognition()
+                        
+                        # Display simulation info
+                        camera_placeholder.image(frame, channels="BGR", caption="🎬 Smart Simulation Mode Active")
+                        
+                        # Create simulation UI with gesture results
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 15px; border-radius: 10px; color: white; margin: 10px 0;">
+                            <h4 style="margin: 0;">🤖 AI Simulation Active</h4>
+                            <p style="margin: 5px 0;">Detected Gesture: <strong>{simulated_gesture}</strong></p>
+                            <p style="margin: 0; font-size: 0.9rem;">Simulating real-time gesture recognition</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Continue with gesture translation if simulated gesture is detected
+                        if simulated_gesture and simulated_gesture != "Unknown":
+                            gesture_translation = translate_text(simulated_gesture, target_lang_code)
+                            st.success(f"🔄 **Simulated Translation:** {simulated_gesture} → {gesture_translation}")
+                            
+                            # TTS for simulated gesture
+                            if enable_tts:
+                                cloud_compatible_tts(f"Gesture detected: {simulated_gesture}", target_lang_code)
+                    else:
+                        # Basic simulation without cloud config
+                        basic_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+                        camera_placeholder.image(basic_frame, channels="BGR", caption="🎬 Basic Simulation Mode")
+                        st.info("🌐 Cloud simulation active - camera features simulated")
+                    
+                    # Skip camera processing since we're in simulation mode
+                    time.sleep(0.1)  # Small delay for smooth UI updates
+                    
+                elif cap is not None and cap.isOpened():
+                    # Enhanced frame reading with validation and error handling
                     # Read multiple frames to flush buffer and get latest
                     frame_attempts = 0
                     max_attempts = 5
@@ -1960,14 +2113,45 @@ if gesture_mode or lip_mode:
                                             st.session_state.gesture_count += 1
                                             st.success("✅ Enhanced fallback gesture processed successfully!")
                 
-                # Camera status and error handling
-                if cap is None or not cap.isOpened():
-                    camera_status.error("❌ Unable to read from camera - trying to reconnect...")
-                    camera_placeholder.error("📹 Camera read failed - attempting reconnection")
-                    # Try to reconnect
-                    if cap is not None:
-                        cap.release()
-                    # Camera retry logic removed
+                # Enhanced camera status and error handling with cloud compatibility
+                if cap is None or (cap is not None and not cap.isOpened()):
+                    # Check if we're in a cloud environment
+                    cloud_indicators = [
+                        'STREAMLIT_SHARING' in os.environ,
+                        'STREAMLIT_CLOUD' in os.environ,
+                        '/mount/src' in os.getcwd(),
+                        '/app' in os.getcwd(),
+                        'streamlit.io' in os.environ.get('HOSTNAME', ''),
+                        'heroku' in os.environ.get('DYNO', ''),
+                        os.path.exists('/.dockerenv')
+                    ]
+                    
+                    if any(cloud_indicators):
+                        # Cloud environment - automatically switch to simulation
+                        camera_status.info("🌐 Cloud environment detected - using simulation mode")
+                        st.session_state.camera_simulation = True
+                        st.session_state.cap = None
+                    else:
+                        # Local environment - offer reconnection options
+                        camera_status.warning("📹 Camera connection lost - attempting recovery...")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            if st.button("🔄 Reconnect Camera", key="reconnect_camera"):
+                                if cap is not None:
+                                    cap.release()
+                                st.session_state.cap = None
+                                st.rerun()
+                        with col2:
+                            if st.button("🎬 Switch to Simulation", key="switch_simulation"):
+                                st.session_state.camera_simulation = True
+                                if cap is not None:
+                                    cap.release()
+                                st.session_state.cap = None
+                                st.rerun()
+                        with col3:
+                            if st.button("🔧 Troubleshooting", key="troubleshoot"):
+                                st.session_state.show_troubleshooting = True
+                                st.rerun()
             else:
                 # Camera not available - Enhanced simulation mode
                 if st.session_state.get('camera_simulation', False):
@@ -1981,21 +2165,24 @@ if gesture_mode or lip_mode:
                     ''', unsafe_allow_html=True)
                     
                     # Create animated simulation frame
-                    simulation_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                    # Add gradient background
-                    for i in range(480):
-                        for j in range(640):
-                            simulation_frame[i, j] = [
-                                int(100 + 50 * np.sin(i * 0.01 + time.time())),
-                                int(150 + 50 * np.cos(j * 0.01 + time.time())), 
-                                int(200 + 50 * np.sin((i+j) * 0.01 + time.time()))
-                            ]
-                    
-                    # Add animated text
-                    cv2.putText(simulation_frame, "SIMULATION MODE", (150, 240), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
-                    cv2.putText(simulation_frame, "Camera Simulation Active", (170, 280), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                    if CLOUD_CONFIG_AVAILABLE:
+                        simulation_frame = create_simulation_frame()
+                    else:
+                        simulation_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                        # Add gradient background
+                        for i in range(480):
+                            for j in range(640):
+                                simulation_frame[i, j] = [
+                                    int(100 + 50 * np.sin(i * 0.01 + time.time())),
+                                    int(150 + 50 * np.cos(j * 0.01 + time.time())), 
+                                    int(200 + 50 * np.sin((i+j) * 0.01 + time.time()))
+                                ]
+                        
+                        # Add animated text
+                        cv2.putText(simulation_frame, "SIMULATION MODE", (150, 240), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+                        cv2.putText(simulation_frame, "Camera Simulation Active", (170, 280), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                     
                     camera_placeholder.image(simulation_frame, channels="RGB", use_container_width=True)
                     
@@ -2006,33 +2193,47 @@ if gesture_mode or lip_mode:
                         if st.button("🎭 Simulate Gesture", key="sim_gesture"):
                             with st.spinner("Simulating gesture recognition..."):
                                 time.sleep(1)  # Simulate processing time
-                                simulated_landmarks = []
-                                gesture_type = np.random.choice(['open_hand', 'fist', 'peace', 'thumbs_up', 'point'])
                                 
-                                # Generate gesture-specific landmarks
-                                for i in range(21):
-                                    if gesture_type == 'open_hand':
-                                        x, y = 0.5 + (i % 5) * 0.08, 0.5 + (i // 5) * 0.08
-                                    elif gesture_type == 'fist':
-                                        x, y = 0.5 + np.random.normal(0, 0.02), 0.5 + np.random.normal(0, 0.02)
-                                    elif gesture_type == 'peace':
-                                        x, y = 0.5 + (0.1 if i in [8, 12] else 0.02), 0.5 + np.random.normal(0, 0.02)
-                                    elif gesture_type == 'thumbs_up':
-                                        x, y = 0.5 + (0.1 if i == 4 else 0.02), 0.4 + np.random.normal(0, 0.02)
-                                    else:  # point
-                                        x, y = 0.5 + (0.15 if i == 8 else 0.02), 0.5 + np.random.normal(0, 0.02)
-                                    
-                                    z = np.random.uniform(-0.05, 0.05)
-                                    simulated_landmarks.extend([x, y, z])
-                                
-                                gesture_result = process_gesture_recognition(np.array(simulated_landmarks), target_lang_code)
-                                if gesture_result:
+                                if CLOUD_CONFIG_AVAILABLE:
+                                    # Use cloud-compatible gesture simulation
+                                    gesture_result = simulate_gesture_recognition()
                                     st.session_state['gesture_detected'] = gesture_result
                                     st.session_state.gesture_count = st.session_state.get('gesture_count', 0) + 1
-                                    st.success(f"✅ Simulated Gesture: {gesture_result['original']} → {gesture_result['translated']}")
                                     
+                                    st.success(f"✅ Cloud Simulated Gesture: {gesture_result['original']} → {gesture_result['translated']}")
+                                    
+                                    # Cloud-compatible audio output
                                     if enable_tts:
-                                        text_to_speech_with_method(gesture_result['translated'], target_lang_code, "Windows SAPI", 150, 1.0)
+                                        cloud_compatible_tts(gesture_result['translated'], target_lang_code)
+                                else:
+                                    # Fallback simulation
+                                    simulated_landmarks = []
+                                    gesture_type = np.random.choice(['open_hand', 'fist', 'peace', 'thumbs_up', 'point'])
+                                    
+                                    # Generate gesture-specific landmarks
+                                    for i in range(21):
+                                        if gesture_type == 'open_hand':
+                                            x, y = 0.5 + (i % 5) * 0.08, 0.5 + (i // 5) * 0.08
+                                        elif gesture_type == 'fist':
+                                            x, y = 0.5 + np.random.normal(0, 0.02), 0.5 + np.random.normal(0, 0.02)
+                                        elif gesture_type == 'peace':
+                                            x, y = 0.5 + (0.1 if i in [8, 12] else 0.02), 0.5 + np.random.normal(0, 0.02)
+                                        elif gesture_type == 'thumbs_up':
+                                            x, y = 0.5 + (0.1 if i == 4 else 0.02), 0.4 + np.random.normal(0, 0.02)
+                                        else:  # point
+                                            x, y = 0.5 + (0.15 if i == 8 else 0.02), 0.5 + np.random.normal(0, 0.02)
+                                        
+                                        z = np.random.uniform(-0.05, 0.05)
+                                        simulated_landmarks.extend([x, y, z])
+                                    
+                                    gesture_result = process_gesture_recognition(np.array(simulated_landmarks), target_lang_code)
+                                    if gesture_result:
+                                        st.session_state['gesture_detected'] = gesture_result
+                                        st.session_state.gesture_count = st.session_state.get('gesture_count', 0) + 1
+                                        st.success(f"✅ Simulated Gesture: {gesture_result['original']} → {gesture_result['translated']}")
+                                        
+                                        if enable_tts:
+                                            text_to_speech_with_method(gesture_result['translated'], target_lang_code, "Windows SAPI", 150, 1.0)
                     
                     with sim_col2:
                         if st.button("👄 Simulate Lip Reading", key="sim_lip"):
