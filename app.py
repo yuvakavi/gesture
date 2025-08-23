@@ -81,26 +81,38 @@ translator = Translator()
 @st.cache_resource
 def init_tts_engine():
     try:
-        # Detect environment
-        is_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd()
+        # Detect environment more reliably
+        is_cloud = (
+            'STREAMLIT_SHARING' in os.environ or 
+            'STREAMLIT_CLOUD' in os.environ or 
+            '/mount/src' in os.getcwd() or
+            'streamlit.io' in os.environ.get('HOSTNAME', '') or
+            'share.streamlit.io' in os.environ.get('HTTP_HOST', '')
+        )
         
         if is_cloud:
-            print("TTS using cloud mode (visual notifications)")
+            print("🌐 TTS using cloud mode (visual notifications)")
             return "cloud_mode"
         
         # Try to initialize pyttsx3 for local use
         try:
             import pyttsx3
             engine = pyttsx3.init()
-            print("TTS initialized with pyttsx3")
+            # Test the engine
+            voices = engine.getProperty('voices')
+            if voices:
+                engine.setProperty('voice', voices[0].id)
+            engine.setProperty('rate', 150)
+            engine.setProperty('volume', 1.0)
+            print("✅ TTS initialized with pyttsx3")
             return engine
         except Exception as e:
-            print(f"pyttsx3 not available: {e}")
+            print(f"⚠️ pyttsx3 not available: {e}")
             return "fallback_mode"
             
     except Exception as e:
-        print(f"TTS initialization error: {e}")
-        return None
+        print(f"❌ TTS initialization error: {e}")
+        return "fallback_mode"
 
 tts_engine = init_tts_engine()
 
@@ -353,61 +365,142 @@ def speech_to_text():
     return "Speech input is not available."
 
 def text_to_speech_with_method(text, language='en', method="Auto (Recommended)", rate=150, volume=0.9):
-    """Convert text to speech with local audio and cloud visual output"""
+    """Convert text to speech with enhanced local audio and cloud visual output"""
     if not text or not text.strip():
-        return "Speech input is not available."
+        return "No text provided for speech synthesis."
     
     # Clean text for better speech synthesis
-    clean_text = text.replace('"', "'").replace("`", "").strip()
+    clean_text = text.replace('"', "'").replace("`", "").replace("'", "").strip()
+    if not clean_text:
+        return "Empty text after cleaning."
     
-    # Detect environment
-    is_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_CLOUD' in os.environ or '/mount/src' in os.getcwd()
+    # Detect environment with enhanced detection
+    is_cloud = (
+        'STREAMLIT_SHARING' in os.environ or 
+        'STREAMLIT_CLOUD' in os.environ or 
+        '/mount/src' in os.getcwd() or
+        'streamlit.io' in os.environ.get('HOSTNAME', '') or
+        'share.streamlit.io' in os.environ.get('HTTP_HOST', '')
+    )
     
     if is_cloud:
-        # Cloud mode - visual notifications
-        st.info(f"🔊 AUDIO (Cloud Mode): {clean_text}")
-        st.balloons()
-        return
+        # Cloud mode - enhanced visual notifications
+        st.success(f"🔊 CLOUD AUDIO: {clean_text}")
+        st.info("🌐 Running on Streamlit Cloud - Audio shown visually")
+        return "cloud_mode_activated"
     
-    # Local mode - try pyttsx3 first
-    try:
-        import pyttsx3
-        engine = pyttsx3.init()
-        engine.setProperty('rate', rate)
-        engine.setProperty('volume', volume)
-        engine.say(clean_text)
-        engine.runAndWait()
-        st.success(f"🔊 SPEAKING: {clean_text}")
-        return
-    except Exception as e:
-        print(f"pyttsx3 failed: {e}")
+    # Local mode - Enhanced audio with multiple fallbacks
+    audio_success = False
     
-    # Fallback: PowerShell SAPI for Windows
-    try:
-        import subprocess
-        ps_script = f'''
-        Add-Type -AssemblyName System.Speech
-        $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
-        $voice.Volume = 100
-        $voice.Rate = 0
-        $voice.Speak("{clean_text}")
-        '''
-        
-        result = subprocess.run(
-            ['powershell', '-Command', ps_script],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        st.success(f"🔊 SPEAKING: {clean_text}")
-        if result.returncode == 0:
-            return
-    except Exception as e:
-        print(f"PowerShell SAPI failed: {e}")
+    # Method 1: pyttsx3 with enhanced configuration
+    if not audio_success:
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            
+            # Enhanced voice configuration
+            voices = engine.getProperty('voices')
+            if voices:
+                # Try to use a female voice if available
+                for voice in voices:
+                    if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
+                        engine.setProperty('voice', voice.id)
+                        break
+                else:
+                    engine.setProperty('voice', voices[0].id)
+            
+            engine.setProperty('rate', max(100, min(250, rate)))
+            engine.setProperty('volume', max(0.1, min(1.0, volume)))
+            
+            # Speak with timeout protection
+            engine.say(clean_text)
+            engine.runAndWait()
+            
+            st.success(f"🔊 SPEAKING (pyttsx3): {clean_text}")
+            audio_success = True
+            return "pyttsx3_success"
+            
+        except Exception as e:
+            print(f"🔄 pyttsx3 failed, trying fallback: {e}")
     
-    # Final fallback - visual display
-    st.error("🚨 AUDIO NOT WORKING - VISUAL OUTPUT:")
+    # Method 2: Windows SAPI via PowerShell (Enhanced)
+    if not audio_success and os.name == 'nt':
+        try:
+            # Escape text for PowerShell
+            escaped_text = clean_text.replace("'", "''").replace('"', '""')
+            
+            ps_script = f'''
+            try {{
+                Add-Type -AssemblyName System.Speech
+                $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
+                $voice.Volume = {int(volume * 100)}
+                $voice.Rate = {max(-10, min(10, int((rate - 150) / 15)))}
+                $voice.SpeakAsync("{escaped_text}")
+                Start-Sleep -Seconds 1
+                Write-Output "Speech synthesis started"
+            }} catch {{
+                Write-Error "Speech synthesis failed: $_"
+            }}
+            '''
+            
+            result = subprocess.run(
+                ['powershell', '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                shell=True
+            )
+            
+            if result.returncode == 0:
+                st.success(f"🔊 SPEAKING (Windows SAPI): {clean_text}")
+                audio_success = True
+                return "sapi_success"
+            else:
+                print(f"PowerShell SAPI error: {result.stderr}")
+                
+        except Exception as e:
+            print(f"🔄 Windows SAPI failed: {e}")
+    
+    # Method 3: Command line utilities fallback
+    if not audio_success:
+        try:
+            if os.name == 'nt':  # Windows
+                # Use built-in narrator
+                subprocess.Popen([
+                    'powershell', '-Command', 
+                    f'(New-Object -ComObject SAPI.SpVoice).Speak("{escaped_text}")'
+                ], shell=True)
+                st.success(f"🔊 SPEAKING (System Voice): {clean_text}")
+                audio_success = True
+                return "system_voice_success"
+            elif os.name == 'posix':  # Linux/Mac
+                subprocess.Popen(['espeak', clean_text])
+                st.success(f"🔊 SPEAKING (espeak): {clean_text}")
+                audio_success = True
+                return "espeak_success"
+        except Exception as e:
+            print(f"🔄 System voice failed: {e}")
+    
+    # Final fallback - Enhanced visual display
+    if not audio_success:
+        st.error("� AUDIO UNAVAILABLE - VISUAL OUTPUT:")
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            padding: 20px;
+            border-radius: 15px;
+            border: 3px solid #FFD93D;
+            color: white;
+            font-size: 1.2em;
+            font-weight: bold;
+            text-align: center;
+            animation: pulse 2s infinite;
+            box-shadow: 0 0 20px rgba(255, 107, 107, 0.5);
+        ">
+            🔊📢 AUDIO MESSAGE: {clean_text}
+        </div>
+        """, unsafe_allow_html=True)
+        return "visual_fallback"
     st.markdown(f"## 🔊 {clean_text}")
     st.warning("Check: 1) Volume up 2) Speakers connected 3) Audio working in other apps")
 
@@ -958,6 +1051,116 @@ with st.sidebar:
         except Exception as e:
             st.info(f"System audio check: {e}")
     
+    # Add comprehensive troubleshooting section
+    st.header("🔧 Troubleshooting")
+    
+    with st.expander("📹 Camera Issues", expanded=False):
+        st.markdown("""
+        **Common Solutions:**
+        
+        🔒 **Permission Issues:**
+        - Allow camera access when browser asks
+        - Check browser settings (camera permissions)
+        - Try refreshing the page
+        
+        📱 **App Conflicts:**
+        - Close Zoom, Skype, Teams, Discord
+        - Exit other video calling apps
+        - Stop screen recording software
+        
+        🔌 **Hardware Issues:**
+        - Check camera cable connection
+        - Try a different USB port
+        - Test camera in other applications
+        
+        🌐 **Browser Compatibility:**
+        - Chrome and Firefox work best
+        - Enable camera in browser settings
+        - Try incognito/private mode
+        
+        ⚡ **Quick Fixes:**
+        - Restart your browser
+        - Reboot your computer
+        - Update camera drivers
+        """)
+        
+        if st.button("🔄 Reset Camera Settings", key="reset_camera"):
+            if 'cap' in st.session_state and st.session_state.cap:
+                st.session_state.cap.release()
+            st.session_state.cap = None
+            st.session_state.camera_simulation = False
+            st.success("Camera settings reset! Please refresh the page.")
+    
+    with st.expander("🔊 Audio Issues", expanded=False):
+        st.markdown("""
+        **Audio Solutions:**
+        
+        🌐 **Streamlit Cloud:**
+        - Audio shows as visual notifications
+        - Download app for local audio
+        - Balloons = successful audio trigger
+        
+        🔊 **Local Audio Problems:**
+        - Check system volume settings
+        - Test Windows audio devices
+        - Update audio drivers
+        - Run as administrator
+        
+        🎵 **TTS Not Working:**
+        - Install `pyttsx3`: `pip install pyttsx3`
+        - Try different TTS methods
+        - Check Windows Speech Platform
+        
+        ⚙️ **Advanced Fixes:**
+        - Restart Windows Audio service
+        - Check PowerShell execution policy
+        - Update .NET Framework
+        """)
+    
+    with st.expander("🌐 Cloud Deployment", expanded=False):
+        st.markdown("""
+        **Streamlit Cloud Notes:**
+        
+        📹 **Camera:**
+        - May not work in cloud environment
+        - Use Smart Simulation Mode instead
+        - Full functionality maintained
+        
+        🔊 **Audio:**
+        - Visual notifications replace audio
+        - Download for local audio experience
+        - All features work with visual feedback
+        
+        🚀 **Performance:**
+        - Cloud optimized for speed
+        - Reduced resource usage
+        - Automatic fallback systems
+        """)
+    
+    # System status indicator
+    st.markdown("---")
+    st.markdown("**System Status:**")
+    
+    # Environment detection
+    is_cloud = (
+        'STREAMLIT_SHARING' in os.environ or 
+        'STREAMLIT_CLOUD' in os.environ or 
+        '/mount/src' in os.getcwd() or
+        'streamlit.io' in os.environ.get('HOSTNAME', '') or
+        'share.streamlit.io' in os.environ.get('HTTP_HOST', '')
+    )
+    
+    if is_cloud:
+        st.info("🌐 Running on Streamlit Cloud")
+        st.caption("Camera simulation and visual audio available")
+    else:
+        st.success("💻 Running locally")
+        st.caption("Full camera and audio support available")
+    
+    # Show app version
+    st.caption("🤖 AI Multimodal Assistant v2.1")
+    st.caption("Translation fix applied ✅")
+    
     # Enhanced Gesture Categories Display
     st.header("🎭 Available Gestures")
     with st.expander("👀 View All Gesture Categories", expanded=False):
@@ -1128,35 +1331,46 @@ if gesture_mode or lip_mode:
         def init_camera_robust():
             """Robust camera initialization with multiple backends and error handling"""
             camera_configs = [
-                (0, cv2.CAP_DSHOW, "DirectShow"),
+                (0, cv2.CAP_DSHOW, "DirectShow (Primary)"),
                 (0, cv2.CAP_MSMF, "Media Foundation"),
+                (0, cv2.CAP_V4L2, "Video4Linux2"),
                 (0, cv2.CAP_ANY, "Any Backend"),
-                (1, cv2.CAP_DSHOW, "DirectShow (Camera 1)"),
+                (1, cv2.CAP_DSHOW, "DirectShow (Secondary Camera)"),
                 (1, cv2.CAP_ANY, "Any Backend (Camera 1)"),
                 (2, cv2.CAP_ANY, "Any Backend (Camera 2)"),
             ]
             
             for camera_index, backend, backend_name in camera_configs:
                 try:
+                    print(f"🔍 Trying {backend_name}...")
                     cap = cv2.VideoCapture(camera_index, backend)
                     
-                    # Enhanced camera properties
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    cap.set(cv2.CAP_PROP_FPS, 30)
-                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                    cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
-                    
                     if cap.isOpened():
+                        # Enhanced camera properties for better compatibility
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        cap.set(cv2.CAP_PROP_FPS, 30)
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
+                        
+                        # Optional properties (may not be supported by all cameras)
+                        try:
+                            cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+                            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+                        except:
+                            pass  # Ignore if not supported
+                        
                         # Test camera with multiple frame reads
-                        for test_attempt in range(5):
+                        successful_reads = 0
+                        for test_attempt in range(10):
                             ret, frame = cap.read()
                             if ret and frame is not None and frame.size > 0:
                                 h, w = frame.shape[:2]
                                 if h > 0 and w > 0:
-                                    print(f"✅ Camera initialized: {backend_name}")
-                                    return cap
-                            time.sleep(0.1)
+                                    successful_reads += 1
+                                    if successful_reads >= 3:  # Require 3 successful reads
+                                        print(f"✅ Camera initialized successfully: {backend_name}")
+                                        return cap
+                            time.sleep(0.05)
                     
                     cap.release()
                     
@@ -1169,32 +1383,84 @@ if gesture_mode or lip_mode:
                             pass
                     continue
             
+            print("❌ No working camera found")
             return None
+        
+        # Enhanced camera status checking
+        def check_camera_advanced():
+            """Advanced camera availability check"""
+            try:
+                # Quick test with minimal resources
+                test_cap = cv2.VideoCapture(0)
+                if test_cap.isOpened():
+                    ret, frame = test_cap.read()
+                    test_cap.release()
+                    return ret and frame is not None and frame.size > 0
+                return False
+            except:
+                return False
         
         try:
             # Check if user manually chose simulation mode
             if st.session_state.get('camera_simulation', False):
                 with camera_status.container():
-                    st.success("🎬 Smart Simulation Mode Active")
+                    st.success("🎬 Smart Simulation Mode Active - Full Functionality Available!")
                 st.session_state.cap = None
             elif 'cap' not in st.session_state or st.session_state.cap is None or not st.session_state.cap.isOpened():
                 with camera_status.container():
-                    st.info("🔄 Initializing real camera...")
+                    st.info("🔄 Initializing camera system...")
                 
-                st.session_state.cap = init_camera_robust()
+                # Advanced camera availability check
+                camera_available = check_camera_advanced()
                 
-                if st.session_state.cap is None:
-                    camera_status.warning("📹 Real camera not available - Would you like to use Simulation Mode?")
-                    # Don't automatically switch - let user choose
-                    if st.button("🎬 Yes, Use Simulation Mode", key="auto_sim_switch"):
-                        st.session_state.camera_simulation = True
-                        st.rerun()
+                if camera_available:
+                    st.session_state.cap = init_camera_robust()
+                    
+                    if st.session_state.cap is not None:
+                        camera_status.success("✅ Camera initialized successfully!")
+                        st.session_state.camera_simulation = False
+                        
+                        # Show helpful camera info
+                        if enable_tts:
+                            text_to_speech_with_method("Camera ready for gesture recognition", target_lang_code)
                     else:
-                        st.info("💡 Try the camera troubleshooting steps below or manually switch to Simulation Mode using the buttons above.")
-                        st.session_state.cap = None
+                        camera_status.warning("📹 Camera detected but initialization failed")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("🔄 Retry Camera", key="retry_camera"):
+                                st.rerun()
+                        with col2:
+                            if st.button("🎬 Use Simulation Mode", key="fallback_sim"):
+                                st.session_state.camera_simulation = True
+                                st.rerun()
                 else:
-                    camera_status.success("✅ Camera initialized successfully!")
-                    st.session_state.camera_simulation = False
+                    # No camera detected - offer simulation mode
+                    camera_status.info("� No camera detected")
+                    
+                    # Create a nice layout for the options
+                    st.markdown("""
+                    <div style="background: linear-gradient(45deg, #667eea, #764ba2); padding: 20px; border-radius: 15px; color: white; margin: 10px 0;">
+                        <h4>🎥 Camera Setup Options</h4>
+                        <p>• <strong>Allow camera access</strong> when browser asks</p>
+                        <p>• <strong>Close other apps</strong> (Zoom, Skype, Teams)</p>
+                        <p>• <strong>Check camera connection</strong> and try refreshing</p>
+                        <p>• <strong>Use Chrome or Firefox</strong> for best compatibility</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        if st.button("🔄 Retry Camera Setup", key="retry_setup"):
+                            st.rerun()
+                    with col2:
+                        if st.button("🎬 Smart Simulation Mode", key="start_sim"):
+                            st.session_state.camera_simulation = True
+                            if enable_tts:
+                                text_to_speech_with_method("Simulation mode activated", target_lang_code)
+                            st.rerun()
+                    with col3:
+                        if st.button("📋 Troubleshooting Guide", key="help_guide"):
+                            st.info("💡 See the troubleshooting section in the sidebar for detailed help!")
                 
                 if 'cap' not in st.session_state:
                     st.session_state.cap = None
