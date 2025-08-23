@@ -42,17 +42,35 @@ def configure_for_cloud():
 
 def create_simulation_frame():
     """Create an animated simulation frame for cloud deployment"""
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    
-    # Animated gradient background
+    # Create frame more efficiently using numpy broadcasting
+    height, width = 480, 640
     t = time.time()
-    for i in range(480):
-        for j in range(640):
-            frame[i, j] = [
-                int(120 + 60 * np.sin(i * 0.02 + t)),
-                int(160 + 60 * np.cos(j * 0.02 + t)), 
-                int(200 + 60 * np.sin((i+j) * 0.015 + t))
-            ]
+    
+    # Create coordinate grids
+    i = np.arange(height).reshape(-1, 1)  # Column vector
+    j = np.arange(width).reshape(1, -1)   # Row vector
+    
+    # Calculate color channels using vectorized operations with broadcasting
+    r = np.clip(120 + 60 * np.sin(i * 0.02 + t), 0, 255).astype(np.uint8)
+    g = np.clip(160 + 60 * np.cos(j * 0.02 + t), 0, 255).astype(np.uint8)
+    b = np.clip(200 + 60 * np.sin((i + j) * 0.015 + t), 0, 255).astype(np.uint8)
+    
+    # Broadcast to full frame size and stack
+    r_full = np.broadcast_to(r, (height, width))
+    g_full = np.broadcast_to(g, (height, width))
+    b_full = np.broadcast_to(b, (height, width))
+    
+    # Stack channels to create RGB frame
+    frame = np.stack([r_full, g_full, b_full], axis=2)
+    
+    # Add some animated elements to make it more realistic
+    center_x, center_y = width // 2, height // 2
+    radius = int(50 + 20 * np.sin(t * 2))
+    
+    # Draw animated circle (simulating hand detection area)
+    y_coords, x_coords = np.ogrid[:height, :width]
+    mask = (x_coords - center_x)**2 + (y_coords - center_y)**2 <= radius**2
+    frame[mask] = [255, 200, 100]  # Orange circle for hand detection simulation
     
     return frame
 
